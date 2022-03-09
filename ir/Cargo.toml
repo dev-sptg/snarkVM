@@ -41,3 +41,7 @@ version = "1.6"
 
 [build-dependencies.prost-build]
 version = "0.7"
+
+[dependencies.leo-span]
+path = "../../leo/span"
+version = "1.5.3"

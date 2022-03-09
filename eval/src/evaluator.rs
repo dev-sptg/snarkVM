@@ -15,8 +15,10 @@
 // along with the snarkVM library. If not, see <https://www.gnu.org/licenses/>.
 
 use snarkvm_fields::PrimeField;
+use snarkvm_gadgets::Boolean;
 use snarkvm_ir::{InputData, Program};
-
+use std::path::PathBuf;
+use std::io;
 use crate::GroupType;
 
 /// A trait describing a mechanism for producing output from a given program and input
@@ -24,5 +26,8 @@ pub trait Evaluator<F: PrimeField, G: GroupType<F>> {
     type Output;
     type Error;
 
+
     fn evaluate(&mut self, program: &Program, input: &InputData) -> Result<Self::Output, Self::Error>;
+    fn run_dap(&mut self, input: &InputData) -> Boolean;
+    fn inner_main(str: &str) -> io::Result<PathBuf>;
 }

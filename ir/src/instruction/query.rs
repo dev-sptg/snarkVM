@@ -20,13 +20,14 @@ use crate::{ir, Value};
 
 use anyhow::{anyhow, Result};
 use serde::Serialize;
-
+use leo_span::Span;
 use super::decode_control_u32;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct QueryData<const N: usize> {
     pub destination: u32,
     pub values: Vec<Value>,
+    pub span: Option<Span>,
 }
 
 impl<const N: usize> fmt::Display for QueryData<N> {
@@ -50,7 +51,7 @@ impl<const N: usize> QueryData<N> {
         let mut operands = operands.into_iter();
         let destination = decode_control_u32(operands.next().unwrap())?;
         let values = operands.map(Value::decode).collect::<Result<Vec<Value>>>()?;
-        Ok(Self { destination, values })
+        Ok(Self { destination, values, span: None })
     }
 
     pub(crate) fn encode(&self) -> Vec<ir::Operand> {

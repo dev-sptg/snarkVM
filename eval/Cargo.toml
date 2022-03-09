@@ -58,3 +58,11 @@ version = "1.0"
 
 [dependencies.indexmap]
 version = "1.6"
+
+[dependencies.leo-span]
+path = "../../leo/span"
+version = "1.5.3"
+
+[dependencies]
+libloading = "0.5"
+synchronoise = "0.4.0"

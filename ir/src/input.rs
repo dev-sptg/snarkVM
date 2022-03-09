@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with the snarkVM library. If not, see <https://www.gnu.org/licenses/>.
 
+use std::path::PathBuf;
 use crate::{ir, Type, Value};
 
 use anyhow::{anyhow, Result};
@@ -55,6 +56,7 @@ pub struct InputData {
     pub public_states: IndexMap<String, Value>,
     pub private_record_states: IndexMap<String, Value>,
     pub private_leaf_states: IndexMap<String, Value>,
+    pub debug_data: PathBuf,
 }
 
 fn encode_map_key((key, value): (&String, &Value)) -> ir::InputDataItem {
@@ -102,6 +104,7 @@ impl InputData {
                 .into_iter()
                 .map(decode_map_key)
                 .collect::<Result<_>>()?,
+            debug_data: PathBuf::new(),
         })
     }
 

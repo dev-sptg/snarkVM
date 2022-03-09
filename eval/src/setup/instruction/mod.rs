@@ -150,12 +150,12 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
             Instruction::ShrSigned(_) => return Err(anyhow!("ShrSigned unimplemented")),
             Instruction::Shl(_) => return Err(anyhow!("Shl unimplemented")),
             Instruction::Mod(_) => return Err(anyhow!("Mod unimplemented")),
-            Instruction::Not(QueryData { destination, values }) => {
+            Instruction::Not(QueryData { destination, values, span }) => {
                 let inner = self.resolve(values.get(0).unwrap(), cs)?.into_owned();
                 let out = operations::evaluate_not(inner)?;
                 self.store(*destination, out);
             }
-            Instruction::Negate(QueryData { destination, values }) => {
+            Instruction::Negate(QueryData { destination, values, span }) => {
                 let inner = self.resolve(values.get(0).unwrap(), cs)?.into_owned();
                 let out = operations::enforce_negate(&mut self.cs(cs), inner)?;
                 self.store(*destination, out);
@@ -210,7 +210,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
                 let array = ConstrainedValue::Tuple(inner);
                 self.store(*destination, array);
             }
-            Instruction::TupleIndexGet(QueryData { destination, values }) => {
+            Instruction::TupleIndexGet(QueryData { destination, values, span }) => {
                 let index = self
                     .resolve(values.get(1).unwrap(), cs)?
                     .extract_integer()
@@ -236,7 +236,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
 
                 self.store(*destination, out);
             }
-            Instruction::TupleIndexStore(QueryData { destination, values }) => {
+            Instruction::TupleIndexStore(QueryData { destination, values, span }) => {
                 let index = self
                     .resolve(values.get(0).unwrap(), cs)?
                     .extract_integer()
@@ -262,7 +262,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
 
                 self.store(*destination, ConstrainedValue::Tuple(tuple));
             }
-            Instruction::Pick(QueryData { destination, values }) => {
+            Instruction::Pick(QueryData { destination, values, span }) => {
                 let condition = self.resolve(values.get(0).unwrap(), cs)?.into_owned();
                 let condition = condition
                     .extract_bool()
@@ -281,7 +281,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
             Instruction::Call(_) => {
                 panic!("cannot eval call instructions directly");
             }
-            Instruction::Store(QueryData { destination, values }) => {
+            Instruction::Store(QueryData { destination, values, span }) => {
                 let value = self.resolve(values.get(0).unwrap(), cs)?.into_owned();
                 self.store(*destination, value);
             }

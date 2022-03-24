@@ -22,6 +22,8 @@ use snarkvm_fields::PrimeField;
 use snarkvm_gadgets::{Boolean, CondSelectGadget};
 use snarkvm_ir::{Input as IrInput, InputData, Instruction, Program, Type, Value};
 use snarkvm_r1cs::ConstraintSystem;
+use snarkvm_debugger::Debugger;
+
 
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -49,7 +51,9 @@ use state::*;
 pub struct SetupEvaluator<F: PrimeField, G: GroupType<F>, CS: ConstraintSystem<F>> {
     cs: CS,
     _p: PhantomData<(F, G)>,
-    pair:Arc<(Mutex<bool>, Condvar)>
+    pair:Arc<(Mutex<bool>, Condvar)>,
+
+    //debugger: Debugger
     //start_signal: Arc<SignalEvent>//::new(SignalEvent::new(false, SignalKind::Manual));
 }
 
@@ -59,12 +63,13 @@ impl<F: PrimeField, G: GroupType<F>, CS: ConstraintSystem<F>> SetupEvaluator<F, 
             cs,
             _p: PhantomData,
             //start_signal: Arc::new(SignalEvent::new(false, SignalKind::Manual))
-            pair: Arc::new((Mutex::new(false), Condvar::new()))
+            pair: Arc::new((Mutex::new(false), Condvar::new())),
+            //debugger: Debugger::new()
         }
     }
 }
 
-
+/*
 extern crate libloading as lib;
 use std::ffi::{c_void, CString};
 use std::ffi::CStr;
@@ -84,11 +89,13 @@ use std::time::Duration;
 
 #[repr(C)]
 struct RustObject {
-    main_file_path: PathBuf
+    main_file_path: PathBuf,
+    mutex_pair:Arc<(Mutex<bool>, Condvar)>
 }
 
 type RunServer = fn() -> i32;
 type RegisterCallback = fn (target: *mut RustObject, cb: extern fn(target: *mut RustObject, *mut  c_char, i32));
+type RegisterNextStep = fn (target: *mut RustObject, cb: extern fn(target: *mut RustObject));
 type AddScopes = fn (scopes: *mut ScopesExp);
 
 #[repr(C)]
@@ -137,15 +144,6 @@ extern "C" {
 extern "C" fn callback(target: *mut RustObject, src_path: *mut  c_char, _sz: i32) {
     println!("Rust: I'm called from C");
 
-    /*let path = CString::new("foo").expect("CString::new failed");
-    let len = path.as_bytes_with_nul().len();
-    let ptr = path.into_raw();
-    unsafe {
-        copy_nonoverlapping(ptr, src_path, len);
-
-        let _ = CString::from_raw(ptr);
-    }*/
-
     let path = unsafe {
         assert!(!target.is_null());
         &mut *target
@@ -163,183 +161,39 @@ extern "C" fn callback(target: *mut RustObject, src_path: *mut  c_char, _sz: i32
     }
 }
 
+extern "C" fn next_step(target: *mut RustObject) {
+    println!("Rust:next_step : I'm called from C");
+    let robject = unsafe {
+        assert!(!target.is_null());
+        &mut *target
+    };
+
+    let (lock, cvar) = &*robject.mutex_pair;
+    let mut started = lock.lock().unwrap();
+    *started = true;
+    cvar.notify_one();
+}*/
+
 impl<F: PrimeField, G: GroupType<F>, CS: ConstraintSystem<F>> Evaluator<F, G> for SetupEvaluator<F, G, CS> {
     type Error = anyhow::Error;
     type Output = ConstrainedValue<F, G>;
-    //pair = Arc::new((Mutex::new(false), Condvar::new()));
-
-    fn inner_main(str: &str) -> io::Result<PathBuf> {
-        let mut dir = env::current_exe()?;
-        dir.pop();
-        dir.push(str);
-        Ok(dir)
-    }
-
-    fn run_dap(&mut self, input: &InputData) -> Boolean {
-
-        //let start = self.start_signal.clone();
-        let pair2 = Arc::clone(&self.pair);
-        let (lock, cvar) = &*pair2;
-
-        let registers = input.registers.clone();
-        let main_input = input.main.clone();
-        let debug_data = input.debug_data.clone();
-
-        thread::spawn(move || {
-            println!("Load library hello_debugger.dll");
-            let pathSo = Self::inner_main("debugger.dll").expect("Couldn't");
-            let lib = lib::Library::new(pathSo).unwrap();
-
-            unsafe {
-                let run_server: lib::Symbol<RunServer> =  lib.get(b"run_server").unwrap();
-                let register_callback: lib::Symbol<RegisterCallback> = lib.get(b"register_callback").unwrap();
-                let add_scopes: lib::Symbol<AddScopes> = lib.get(b"add_scopes").unwrap();
-
-                let variables_reference_registers: i32 = 300;
-                let variables_reference_main_input: i32 = 301;
-                let mut vec:Vec<VariableExp> = Vec::with_capacity(registers.len());
-                let mut vec_main:Vec<VariableExp> = Vec::with_capacity(main_input.len());
-                for (key, val) in registers.iter() {
-                    let name = CString::new(key.clone()).unwrap().into_raw();
-                    let str_val = CString::new(format!("{}", val).clone()).unwrap().into_raw();
-
-                    let mut variable = VariableExp {
-                        str_name: name,
-                        name_len: key.len() as u16,
-                        str_type: ptr::null_mut(),
-                        type_len: 0,
-                        str_value: str_val,
-                        value_len: strlen(str_val) as u16,
-                        variables_reference: variables_reference_registers
-                    };
-
-                    vec.push(variable);
-                }
-
-                for (key, val) in main_input.iter() {
-                    let name = CString::new(key.clone()).unwrap().into_raw();
-                    let str_val = CString::new(format!("{}", val).clone()).unwrap().into_raw();
-
-                    let mut variable = VariableExp {
-                        str_name: name,
-                        name_len: key.len() as u16,
-                        str_type: ptr::null_mut(),
-                        type_len: 0,
-                        str_value: str_val,
-                        value_len: strlen(str_val) as u16,
-                        variables_reference: variables_reference_main_input
-                    };
-
-                    vec_main.push(variable);
-                }
-
-                let reg_name = "Registers";
-                let name = CString::new(reg_name).unwrap().into_raw();
-                let presentation_hint =  CString::new("register").unwrap().into_raw();
-                //let name = name.to;//.into_raw();
-
-                let mut scope_reg = ScopeExp {
-                    str_name: name,
-                    name_len: strlen(name) as u16,
-                    presentation_hint: presentation_hint,
-                    presentation_hint_len: strlen(presentation_hint) as u16,
-                    variables:  vec.as_mut_ptr(),
-                    variables_len: vec.len() as u16,
-                    variables_reference: variables_reference_registers
-                };
-
-                let reg_name = "Variables";
-                let name = CString::new(reg_name).unwrap().into_raw();
-                let presentation_hint =  CString::new("main inputs").unwrap().into_raw();
-                //let name = name.to;//.into_raw();
-
-                let mut scope_main = ScopeExp {
-                    str_name: name,
-                    name_len: strlen(name) as u16,
-                    presentation_hint: presentation_hint,
-                    presentation_hint_len: strlen(presentation_hint) as u16,
-                    variables:  vec_main.as_mut_ptr(),
-                    variables_len: vec_main.len() as u16,
-                    variables_reference: variables_reference_main_input
-                };
-
-                let mut vec:Vec<ScopeExp> = Vec::with_capacity(2);
-                vec.push(scope_reg);
-                vec.push(scope_main);
-
-                let mut scopes = ScopesExp{
-                    scopes:  vec.as_mut_ptr(),
-                    count: vec.len() as i32,
-                };
-
-                /*let mut scope = ScopeExp {
-                    name: [0; 255],
-                    presentation_hint: [0; 255],
-                    variables_reference: 0
-                };
-
-                let name = CString::new("Locals").expect("CString::new failed");
-                let presentation_hint = CString::new("locals").expect("CString::new failed");
-
-                copy_nonoverlapping(name.as_ptr(), scope.name.as_mut_ptr(), name.as_bytes_with_nul().len());
-                copy_nonoverlapping(presentation_hint.as_ptr(), scope.presentation_hint.as_mut_ptr(), presentation_hint.as_bytes_with_nul().len());
-                scope.variables_reference = 100;
-
-
-                let mut scope1 = ScopeExp {
-                    name: [0; 255],
-                    presentation_hint: [0; 255],
-                    variables_reference: 0
-                };
-
-                let name1 = CString::new("Globals").expect("CString::new failed");
-                let presentation_hint1 = CString::new("globals").expect("CString::new failed");
-
-                copy_nonoverlapping(name1.as_ptr(), scope1.name.as_mut_ptr(), name1.as_bytes_with_nul().len());
-                copy_nonoverlapping(presentation_hint1.as_ptr(), scope1.presentation_hint.as_mut_ptr(), presentation_hint1.as_bytes_with_nul().len());
-                scope1.variables_reference = 101;
-
-
-
-                let mut scope2 = ScopeExp {
-                    name: [0; 255],
-                    presentation_hint: [0; 255],
-                    variables_reference: 0
-                };
-
-                let name2 = CString::new("Static").expect("CString::new failed");
-                let presentation_hint2 = CString::new("static").expect("CString::new failed");
-
-                copy_nonoverlapping(name2.as_ptr(), scope2.name.as_mut_ptr(), name2.as_bytes_with_nul().len());
-                copy_nonoverlapping(presentation_hint2.as_ptr(), scope2.presentation_hint.as_mut_ptr(), presentation_hint2.as_bytes_with_nul().len());
-                scope2.variables_reference = 102;*/
-
-                println!("Rust: register_callback");
-
-                let mut rust_object = Box::new(RustObject {
-                    main_file_path: debug_data
-                });
-
-                register_callback(&mut *rust_object,  callback);
-
-
-                add_scopes(&mut scopes);
-
-                println!("Rust: run_server");
-                run_server();
-            }
-        });
-        Boolean::Constant(true)
-    }
 
     fn evaluate(&mut self, program: &Program, input: &InputData) -> Result<Self::Output, Self::Error> {
-        let mut state = EvaluatorState::new(program);
-        self.run_dap(input);
+        let mut debugger = Debugger::new(program.header.debug_data.clone(), program);
+        debugger.run_debugger(input);
+
+        let mut state = EvaluatorState::new( program);
+        //self.debugger.run_debugger(input);
+        //debugger.run_debugger(input);
+        //self.run_dap(input);
 
         //self.start_signal.wait();
-        let (lock, cvar) = &* self.pair;
-        let mut started = lock.lock().unwrap();
-        cvar.wait(started);
+
+        debugger.wait_for_next_step();
+        debugger.set_variable_value(0, 18, "123".to_string());
+        debugger.send_stack_frame(0);
+        debugger.wait_for_next_step();
+
         state.handle_input_block("main", &program.header.main_inputs, &input.main, &mut self.cs)?;
         state.handle_const_input_block(&program.header.constant_inputs, &input.constants, &mut self.cs)?;
         state.handle_input_block(
@@ -367,7 +221,7 @@ impl<F: PrimeField, G: GroupType<F>, CS: ConstraintSystem<F>> Evaluator<F, G> fo
             &mut self.cs,
         )?;
         let function = state.setup_evaluate_function(0, &[])?;
-        let output = FunctionEvaluator::evaluate_function(function, state, 0, &mut self.cs)?; // arguments assigned via input system for entrypoint
+        let output = FunctionEvaluator::evaluate_function(&mut debugger, function, state, 0, &mut self.cs)?; // arguments assigned via input system for entrypoint
         Ok(output)
     }
 }

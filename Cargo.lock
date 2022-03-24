@@ -1769,6 +1769,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "snarkvm-debugdata"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "serde",
+]
+
+[[package]]
+name = "snarkvm-debugger"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "libloading",
+ "serde",
+ "snarkvm-debugdata",
+ "snarkvm-ir",
+ "synchronoise",
+]
+
+[[package]]
 name = "snarkvm-derives"
 version = "0.7.9"
 dependencies = [
@@ -1819,6 +1839,7 @@ dependencies = [
  "leo-span",
  "libloading",
  "snarkvm-curves",
+ "snarkvm-debugger",
  "snarkvm-dpc",
  "snarkvm-fields",
  "snarkvm-gadgets",
@@ -1907,6 +1928,7 @@ dependencies = [
  "prost",
  "prost-build",
  "serde",
+ "snarkvm-debugdata",
 ]
 
 [[package]]

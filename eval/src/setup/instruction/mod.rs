@@ -39,15 +39,10 @@ use snarkvm_ir::{
 };
 use snarkvm_r1cs::ConstraintSystem;
 
-use crate::{
-    errors::{ArrayError, ValueError},
-    operations,
-    ConstrainedValue,
-    GroupType,
-    Integer,
-};
+use crate::{errors::{ArrayError, ValueError}, operations, ConstrainedValue, GroupType, Integer, IntegerType};
 
 use anyhow::{anyhow, Result};
+use snarkvm_debugger::Debugger;
 
 use super::EvaluatorState;
 
@@ -76,6 +71,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
         instruction: &'b Instruction,
         branch_condition: bool,
         cs: &mut CS,
+        debugger: &mut Debugger
     ) -> Result<Option<ConstrainedValue<F, G>>> {
         match instruction {
             Instruction::Add(data) => {
@@ -96,6 +92,12 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
             Instruction::Div(data) => {
                 let (left, right) = self.resolve_binary(data, cs)?;
                 let out = operations::enforce_div(&mut self.cs(cs), left, right)?;
+
+                //let value = out.extract_integer().unwrap();
+                //let str = value.to_string();
+                //debugger.set_variable_value(self.function_index, data.destination, str);
+                //debugger.send_stack_frame(self.function_index);
+                //debugger.wait_for_next_step();
                 self.store(data.destination, out);
             }
             Instruction::Pow(data) => {
@@ -283,6 +285,21 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
             }
             Instruction::Store(QueryData { destination, values, span }) => {
                 let value = self.resolve(values.get(0).unwrap(), cs)?.into_owned();
+                match value.extract_integer() {
+                    ConstrainedValue::Integer(i) => {
+                        let str = i.to_string();
+                        debugger.set_variable_value(self.function_index, destination, str);
+                        debugger.send_stack_frame(self.function_index);
+                        debugger.wait_for_next_step();
+                    }
+                    Err(e) => {}
+                }
+
+                //value.extract_integer().unwrap();
+                //let str = value.to_string();
+                //debugger.set_variable_value(self.function_index, data.destination, str);
+                //debugger.send_stack_frame(self.function_index);
+                //debugger.wait_for_next_step();
                 self.store(*destination, value);
             }
             Instruction::Return(PredicateData { values }) => {

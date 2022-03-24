@@ -95,6 +95,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
         };
         state.cs_meta("function call", cs);
 
+
         let function = state.setup_evaluate_function(data.index, &arguments)?;
         let state_data = StateData {
             arguments: Rc::new(arguments),
@@ -353,6 +354,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
     /// iterates over every instruction in the function's code block and evaluates it.
     /// if a new code block is hit (via mask, repeat, or call instructions) then the current blocks state is stored on a call stack while the new code block is evaluated
     pub fn evaluate_function<CS: ConstraintSystem<F>>(
+        debugger: &mut Debugger,
         function: &'a Function,
         state: EvaluatorState<'a, F, G>,
         index: u32,
@@ -364,7 +366,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
             state_data: StateData::create_initial_state_data(state, function, Rc::new(Vec::new()), index)?,
         };
         loop {
-            match evaluator.state_data.evaluate_block(cs) {
+            match evaluator.state_data.evaluate_block(cs, debugger) {
                 Ok(Some(Instruction::Call(data))) => {
                     evaluator.setup_call(data, cs)?;
                 }
@@ -484,10 +486,10 @@ impl<'a, F: PrimeField, G: GroupType<F>> StateData<'a, F, G> {
 
     /// evaluates each instruction in a block.
     /// if a control instruction was hit (mask, repeat, call) then it halts evaluation and returns the instruction
-    pub fn evaluate_block<CS: ConstraintSystem<F>>(&mut self, cs: &mut CS) -> Result<Option<&'a Instruction>> {
+    pub fn evaluate_block<CS: ConstraintSystem<F>>(&mut self, cs: &mut CS, debugger: &mut Debugger) -> Result<Option<&'a Instruction>> {
         while self.state.instruction_index < self.block_start + self.block_instruction_count {
             let instruction = &self.function.instructions[self.state.instruction_index as usize];
-            match self.evaluate_instruction(instruction, cs)? {
+            match self.evaluate_instruction(instruction, cs, debugger)? {
                 ControlFlow::Recurse(ins) => return Ok(Some(ins)),
                 ControlFlow::Return => {
                     return Ok(None);
@@ -504,12 +506,13 @@ impl<'a, F: PrimeField, G: GroupType<F>> StateData<'a, F, G> {
         &mut self,
         instruction: &'a Instruction,
         cs: &mut CS,
+        debugger: &mut Debugger
     ) -> Result<ControlFlow<'a>> {
         match instruction {
             Instruction::Call(_) | Instruction::Mask(_) | Instruction::Repeat(_) => {
                 Ok(ControlFlow::Recurse(instruction))
             }
-            _ => match self.state.evaluate_instruction(instruction, self.condition, cs) {
+            _ => match self.state.evaluate_instruction(instruction, self.condition, cs, debugger) {
                 Ok(Some(returned)) => {
                     self.result = Some(returned);
                     Ok(ControlFlow::Return)

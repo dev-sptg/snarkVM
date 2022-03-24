@@ -53,6 +53,10 @@ path = "../utilities"
 version = "0.7.9"
 path = "../dpc"
 
+[dependencies.snarkvm-debugger]
+version = "0.1.0"
+path = "../debugger"
+
 [dependencies.thiserror]
 version = "1.0"
 

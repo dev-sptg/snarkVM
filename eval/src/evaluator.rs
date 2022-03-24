@@ -28,6 +28,6 @@ pub trait Evaluator<F: PrimeField, G: GroupType<F>> {
 
 
     fn evaluate(&mut self, program: &Program, input: &InputData) -> Result<Self::Output, Self::Error>;
-    fn run_dap(&mut self, input: &InputData) -> Boolean;
-    fn inner_main(str: &str) -> io::Result<PathBuf>;
+    //fn run_dap(&mut self, input: &InputData) -> Boolean;
+    //fn inner_main(str: &str) -> io::Result<PathBuf>;
 }

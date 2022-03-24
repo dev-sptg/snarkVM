@@ -35,6 +35,7 @@ members = [
   "wasm",
   "ir",
   "eval",
+  "debugger",
   ".integration"
 ]
 

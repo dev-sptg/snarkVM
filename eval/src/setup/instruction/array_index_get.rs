@@ -15,7 +15,6 @@
 // along with the snarkVM library. If not, see <https://www.gnu.org/licenses/>.
 
 use tracing::span;
-use leo_span::Span;
 use super::*;
 
 impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
@@ -61,8 +60,8 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
         instruction: &Instruction,
         cs: &mut CS,
     ) -> Result<()> {
-        let (destination, values, span) = if let Instruction::ArrayIndexGet(QueryData { destination, values, span }) = instruction {
-            (destination, values, span)
+        let (destination, values) = if let Instruction::ArrayIndexGet(QueryData { destination, values }) = instruction {
+            (destination, values)
         } else {
             unimplemented!("unsupported instruction in evaluate_array_index_get");
         };

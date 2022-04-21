@@ -22,8 +22,8 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
         instruction: &Instruction,
         cs: &mut CS,
     ) -> Result<()> {
-        let (destination, values, span) = if let Instruction::ArraySliceGet(QueryData { destination, values, span }) = instruction {
-            (destination, values, span)
+        let (destination, values) = if let Instruction::ArraySliceGet(QueryData { destination, values }) = instruction {
+            (destination, values)
         } else {
             unimplemented!("unsupported instruction in evaluate_array_slice_get");
         };

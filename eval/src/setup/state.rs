@@ -16,12 +16,13 @@
 
 use snarkvm_gadgets::{Integer as GadgetInteger, UInt16, UInt32, UInt8};
 use snarkvm_ir::{CallData, Function, MaskData, RepeatData};
-
+use crate::debugger::Debugger;
 use crate::IntegerType;
 
 use super::*;
 
 use std::{convert::TryInto, fmt, mem, rc::Rc};
+use snarkvm_debugdata::DebugVariable;
 
 /// the possible outcomes of evaluating an instruction
 #[derive(Debug)]
@@ -74,7 +75,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
     // }
 
     /// setup the state and call stack to start evaluating the target call instruction
-    fn setup_call<CS: ConstraintSystem<F>>(&mut self, data: &'a CallData, cs: &mut CS) -> Result<()> {
+    fn setup_call<CS: ConstraintSystem<F>>(&mut self, debugger: &mut Debugger, data: &'a CallData, cs: &mut CS) -> Result<()> {
         let arguments = data
             .arguments
             .iter()
@@ -95,8 +96,38 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
         };
         state.cs_meta("function call", cs);
 
+        if data.index != 0 && debugger.get_debug_call_depth() == state.call_depth + 1 {
+            debugger.add_to_stack(data.index);
+            if data.arguments.len() > 0 {
+                let item = data.arguments.get(0);
+                 match item {
+                     None => {}
+                     Some(value) => {
+                         println!("{}", value);
+                         match value {
+                             /*Value::Ref(id) => {
 
-        let function = state.setup_evaluate_function(data.index, &arguments)?;
+                             }*/
+                             Value::Address(_) => {}
+                             Value::Boolean(_) => {}
+                             Value::Field(_) => {}
+                             Value::Char(_) => {}
+                             Value::Group(_) => {}
+                             Value::Integer(_) => {}
+                             Value::Array(_) => {}
+                             Value::Tuple(_) => {}
+                             Value::Str(_) => {}
+                             Value::Ref(id) => {
+                                 debugger.set_self_reference(*id);
+                             }
+                         }
+                     }
+                 }
+            }
+            //
+        }
+
+        let function = state.setup_evaluate_function(debugger, data.index, &arguments)?;
         let state_data = StateData {
             arguments: Rc::new(arguments),
             function: &function,
@@ -124,8 +155,28 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
     }
 
     /// returns to the previous state in the call stack and stores the result of the function call's evaluation
-    fn finish_call(&mut self, data: &CallData) -> Result<()> {
+    fn finish_call(&mut self, debugger: &mut Debugger, data: &CallData) -> Result<()> {
         let res = self.unnest().result.unwrap_or_else(|| ConstrainedValue::Tuple(vec![]));
+
+        let value = res.clone();
+        match value.extract_tuple() {
+            Ok(vec) => {
+                let mut values: Vec<String> = Vec::new();
+                for item in vec {
+                    match item.extract_integer() {
+                        Ok(int) => {
+                            values.push(int.to_string());
+                        }
+
+                        Err(_) => {}
+                    }
+                }
+                debugger.set_sub_variable_values(data.destination, values);
+                debugger.send_next_step_response();
+            }
+            Err(_) => {}
+        }
+
         self.state_data.state.store(data.destination, res);
         Ok(())
     }
@@ -232,7 +283,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
 
     /// setup the state and call stack to start evaluating the target repeat instruction.
     /// creates a state for every iteration and adds them all to the call stack
-    fn setup_repeat<CS: ConstraintSystem<F>>(&mut self, data: &'a RepeatData, cs: &mut CS) -> Result<()> {
+    fn setup_repeat<CS: ConstraintSystem<F>>(&mut self,  data: &'a RepeatData, cs: &mut CS, debugger: &mut Debugger) -> Result<()> {
         if data.instruction_count + self.state_data.state.instruction_index
             >= self.state_data.function.instructions.len() as u32
         {
@@ -240,6 +291,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
         }
 
         let from = self.state_data.state.resolve(&data.from, cs)?.into_owned();
+        from.clone().resolve_debug_value(debugger, data.iter_variable);
         let from_int = from
             .extract_integer()
             .map_err(|value| anyhow!("illegal type for loop init: {}", value))?
@@ -318,8 +370,14 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
     }
 
     /// returns to the previous state in the call stack and updates variables from the repeat instructions evaluation
-    fn finish_repeat(&mut self, iter_variable: u32) -> Result<()> {
+    fn finish_repeat(&mut self, iter_variable: u32, debugger: &mut Debugger) -> Result<()> {
         let inner_state = self.unnest();
+        match self.state_data.state.variables.get_mut(&iter_variable) {
+            Some(item) => {
+                item.clone().resolve_debug_value(debugger, iter_variable);
+            }
+            None=> {}
+        }
         for (variable, value) in inner_state.state.variables {
             if self
                 .state_data
@@ -360,34 +418,53 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
         index: u32,
         cs: &mut CS,
     ) -> Result<ConstrainedValue<F, G>> {
+        debugger.set_program_call_depth(state.call_depth);
+        let instruction_index = state.instruction_index;
+
         let mut evaluator = Self {
             call_stack: Vec::new(),
             namespace_id_counter: state.namespace_id,
             state_data: StateData::create_initial_state_data(state, function, Rc::new(Vec::new()), index)?,
         };
+
+
         loop {
             match evaluator.state_data.evaluate_block(cs, debugger) {
                 Ok(Some(Instruction::Call(data))) => {
-                    evaluator.setup_call(data, cs)?;
+                    debugger.set_program_call_depth(evaluator.state_data.state.call_depth);
+                    debugger.evaluate_instruction(evaluator.state_data.state.function_index, evaluator.state_data.state.instruction_index);
+                    if debugger.is_step_into {
+                        let call_depth = debugger.get_debug_call_depth();
+                        debugger.set_debug_call_depth(call_depth + 1);
+                    }
+                    evaluator.setup_call(debugger, data, cs)?;
+
+                    if debugger.is_step_into {
+                        debugger.evaluate_instruction(evaluator.state_data.state.function_index, evaluator.state_data.state.instruction_index);
+                    }
                 }
                 Ok(Some(Instruction::Mask(data))) => {
                     evaluator.setup_mask(data, cs)?;
                 }
                 Ok(Some(Instruction::Repeat(data))) => {
-                    evaluator.setup_repeat(data, cs)?;
+                    evaluator.setup_repeat(data, cs, debugger)?;
                 }
                 Ok(Some(e)) => panic!("invalid control instruction: {:?}", e),
                 Ok(None) => match evaluator.state_data.parent_instruction {
                     ParentInstruction::Call(data) => {
-                        evaluator.finish_call(data)?;
+                        debugger.pop_stack(evaluator.state_data.state.call_depth);
+                        evaluator.finish_call(debugger, data)?;
+
                     }
                     ParentInstruction::Mask(condition) => {
                         evaluator.finish_mask(condition, cs)?;
                     }
                     ParentInstruction::Repeat(iter_variable) => {
-                        evaluator.finish_repeat(iter_variable)?;
+                        evaluator.finish_repeat(iter_variable, debugger)?;
                     }
                     ParentInstruction::None => {
+                        debugger.send_next_step_response();
+                        debugger.wait_for_next_step();
                         return Ok(evaluator.finish_evaluation());
                     }
                 },
@@ -700,6 +777,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
 
     pub fn handle_input_block<CS: ConstraintSystem<F>>(
         &mut self,
+        debugger: &mut Debugger,
         name: &str,
         input_header: &[IrInput],
         input_values: &IndexMap<String, Value>,
@@ -718,10 +796,34 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
                 ));
             }
             let value = Self::allocate_input(&mut cs, &ir_input.type_, &*ir_input.name, value.clone())?;
+            value.clone().resolve_debug_value(debugger, ir_input.variable);
+
             self.variables.insert(ir_input.variable, value);
         }
         Ok(())
     }
+
+    /*pub fn resolve_debug_variable(&mut self, debugger: &mut Debugger, var_id: u32, variable: ConstrainedValue<F, G>, debug_variable: Option<&Vec<DebugVariable>>) {
+        match variable {
+            ConstrainedValue::Address(_) => {}
+            ConstrainedValue::Boolean(_) => {}
+            ConstrainedValue::Char(_) => {}
+            ConstrainedValue::Field(_) => {}
+            ConstrainedValue::Group(_) => {}
+            ConstrainedValue::Integer(_) => {
+                let str = format!("{}", variable);
+                debugger.set_variable_value(self.function_index, var_id, str);
+            }
+            ConstrainedValue::Array(array) => {
+                for item in array {
+
+                }
+
+                //let arr_item
+            }
+            ConstrainedValue::Tuple(_) => {}
+        }
+    }*/
 
     pub fn handle_const_input_block<CS: ConstraintSystem<F>>(
         &mut self,
@@ -746,23 +848,43 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
         Ok(())
     }
 
+    pub fn get_call_depth(&mut self) -> u32 {
+        self.call_depth
+    }
+
     /// loads the arguments for a function into the states variable list
     pub fn setup_evaluate_function(
         &mut self,
+        debugger: &mut Debugger,
         index: u32,
         arguments: &[ConstrainedValue<F, G>],
     ) -> Result<&'a Function> {
+
+
+
         let function = self.program.functions.get(index as usize).expect("missing function");
 
         let mut arg_register = function.argument_start_variable;
         for argument in arguments {
+            argument.clone().resolve_debug_value(debugger, arg_register);
             self.variables.insert(arg_register, argument.clone());
+            /*match argument.extract_integer() {
+                Ok(int) => {
+                    let str = int.to_string();
+                    debugger.set_variable_value_string(index, arg_register, str);
+                }
+                Err(_) => {}
+            }*/
+
+
+
             arg_register += 1;
         }
 
         self.function_index = index;
         self.instruction_index = 0;
         self.call_depth += 1;
+        debugger.set_program_call_depth(self.call_depth);
 
         Ok(&function)
     }

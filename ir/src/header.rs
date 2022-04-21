@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with the snarkVM library. If not, see <https://www.gnu.org/licenses/>.
 
-use std::fmt::DebugStruct;
 use crate::{ir, Input};
 
 use anyhow::Result;
@@ -95,7 +94,7 @@ impl Header {
                 .into_iter()
                 .map(Input::decode)
                 .collect::<Result<Vec<Input>>>()?,
-            debug_data: DebugData::new(),
+            debug_data: DebugData::new(false, None),
             inline_limit: header.inline_limit,
         })
     }

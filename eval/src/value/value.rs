@@ -24,6 +24,8 @@ use snarkvm_gadgets::{
 use snarkvm_ir::Type;
 use snarkvm_r1cs::{ConstraintSystem, SynthesisError};
 use std::fmt;
+use crate::debugger::Debugger;
+use snarkvm_debugdata::{DebugVariable, DebugVariableType};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConstrainedValue<F: PrimeField, G: GroupType<F>> {
@@ -43,6 +45,220 @@ pub enum ConstrainedValue<F: PrimeField, G: GroupType<F>> {
 }
 
 impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
+
+    fn resolve_variable(&mut self, debugger: &mut Debugger, var_id: u32, value: &Self, variable: Option<&mut DebugVariable>) {
+        match value {
+            ConstrainedValue::Address(bytes) => {  }
+            ConstrainedValue::Boolean(value) => {
+                match variable {
+                    None => {
+                        match debugger.debug_data.variables.get_mut(&var_id) {
+                            Some(variable) => {
+                                variable.type_ = DebugVariableType::Boolean;
+                                variable.value = if (value.get_value().unwrap()) { "true".to_string() } else { "false".to_string()};
+                            }
+                            None => {}
+                        }
+                    }
+                    Some(var) => {
+                        var.type_ = DebugVariableType::Boolean;
+                        var.value = if (value.get_value().unwrap()) { "true".to_string() } else { "false".to_string()};
+                    }
+                }
+            },
+            ConstrainedValue::Field(limbs) => {  },
+            ConstrainedValue::Char(c) => {  },
+            ConstrainedValue::Group(g) => {  },
+            ConstrainedValue::Integer(i) => {
+                match variable {
+                    None => {
+                        match debugger.debug_data.variables.get_mut(&var_id) {
+                            Some(variable) => {
+                                variable.type_ = DebugVariableType::Integer;
+                                variable.value = format!("{}", i);
+                            }
+                            None => {}
+                        }
+                    }
+                    Some(var) => {
+                        var.type_ = DebugVariableType::Integer;
+                        var.value = format!("{}", i);
+                    }
+                }
+            },
+            ConstrainedValue::Array(items) => {
+                match variable {
+                    None => {
+                        match debugger.debug_data.variables.get_mut(&var_id) {
+                            Some(variable) => {
+                                let mut variable = variable.clone();
+                                variable.type_ = DebugVariableType::Array;
+                                variable.value = "Array".to_string();
+                                variable.sub_variables.clear();
+
+                                let mut index = 0;
+                                for item in items {
+                                    //out.push(self.resolve(item, cs)?.into_owned());
+                                    let mut dbg_var = DebugVariable{
+                                        name: format!("[{}]", index),
+                                        type_: DebugVariableType::Array,
+                                        value: "".to_string(),
+                                        circuit_id: 0,
+                                        mutable: false,
+                                        const_: false,
+                                        line_start: 0,
+                                        line_end: 0,
+                                        sub_variables: vec![]
+                                    };
+                                    self.resolve_variable(debugger, var_id, item, Some(&mut dbg_var));
+                                    variable.sub_variables.push(dbg_var);
+                                    index += 1;
+                                }
+
+                                debugger.debug_data.variables.insert(var_id, variable);
+                            }
+                            None => {
+                                return;
+                            }
+                        };
+                    }
+                    Some(var) => {
+                        let mut index = 0;
+                        for item in items {
+                            let mut dbg_var = DebugVariable{
+                                name: format!("[{}]", index),
+                                type_: DebugVariableType::Array,
+                                value: "".to_string(),
+                                circuit_id: 0,
+                                mutable: false,
+                                const_: false,
+                                line_start: 0,
+                                line_end: 0,
+                                sub_variables: vec![]
+                            };
+
+                            self.resolve_variable(debugger, var_id, item, Some(&mut dbg_var));
+                            var.sub_variables.push(dbg_var);
+                            index += 1;
+                        }
+                    }
+                }
+            }
+            ConstrainedValue::Tuple(items) => {
+                match variable {
+                    None => {
+                        let mut index: usize = 0;
+                        for item in items {
+                            match item {
+                                ConstrainedValue::Address(_) => {}
+                                ConstrainedValue::Boolean(_) => {}
+                                ConstrainedValue::Char(_) => {}
+                                ConstrainedValue::Field(_) => {}
+                                ConstrainedValue::Group(_) => {}
+                                ConstrainedValue::Integer(int) => {
+                                    match debugger.debug_data.variables.get_mut(&var_id) {
+                                        Some(variable) => {
+                                            match variable.sub_variables.get_mut(index) {
+                                                Some(item) => {
+                                                    item.value = int.to_string();
+                                                }
+                                                None => {
+
+                                                }
+                                            }
+
+
+                                            
+                                            /*for item in &mut variable.sub_variables {
+                                                item.value = values.get(index).unwrap().clone();
+                                                index += 1;
+                                            }*/
+                                        }
+                                        None =>{}
+                                    }
+                                }
+                                ConstrainedValue::Array(items) => {
+                                    match debugger.debug_data.variables.get_mut(&var_id) {
+                                        Some(variable) => {
+                                            
+                                            let mut var_cloned = variable.clone();
+                                            for var_item in &mut var_cloned.sub_variables {
+                                                self.resolve_variable(debugger, var_id, item, Some(var_item));
+                                            }
+                                            debugger.debug_data.variables.insert(var_id, var_cloned);
+                                        }
+                                        None => {
+                                            return;
+                                        }
+                                    };
+                                }
+                                ConstrainedValue::Tuple(_) => {}
+                            }
+                            index += 1;
+                        }
+
+                    }
+                    Some(var) => {
+                      
+                    }
+                }
+
+
+                /*let mut values: Vec<DebugVariable> = Vec::new();
+                for item in items {
+                    match item {
+                        ConstrainedValue::Integer(int) => {
+                            //
+                            let mut dbg_var = DebugVariable{
+                                name: int.to_string(),
+                                type_: DebugVariableType::Integer,
+                                value: "".to_string(),
+                                circuit_id: 0,
+                                mutable: false,
+                                const_: false,
+                                line_start: 0,
+                                line_end: 0,
+                                sub_variables: vec![]
+                            };
+                            self.resolve_variable(debugger, var_id, item, Some(&mut dbg_var));
+                        }
+                        ConstrainedValue::Array(items) => {
+                            let mut dbg_var = DebugVariable{
+                                name: "123".to_string(),
+                                type_: DebugVariableType::Integer,
+                                value: "Array".to_string(),
+                                circuit_id: 0,
+                                mutable: false,
+                                const_: false,
+                                line_start: 0,
+                                line_end: 0,
+                                sub_variables: vec![]
+                            };
+                            self.resolve_variable(debugger, var_id, item, Some(&mut dbg_var));
+                        }
+                        _=> {}
+                    }
+                }
+
+                match debugger.debug_data.variables.get_mut(&var_id) {
+                    Some(variable) => {
+                        let mut index: usize = 0;
+                        for item in &mut variable.sub_variables {
+                            item.value = values.get(index).unwrap().clone();
+                            index += 1;
+                        }
+                    }
+                    None =>{}
+                }*/
+            }
+        }
+    }
+
+    pub fn resolve_debug_value(&mut self, debugger: &mut Debugger, var_id: u32) {
+        let value = self.clone();
+        self.resolve_variable(debugger, var_id, &value, None);
+    }
+
     pub fn extract_bool(&self) -> Result<&Boolean, &Self> {
         match self {
             ConstrainedValue::Boolean(x) => Ok(x),

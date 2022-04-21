@@ -1,31 +1,47 @@
 use std::fmt;
-use std::fmt::Display;
 use crate::variable::DebugVariable;
 use indexmap::IndexMap;
 use serde::Serialize;
+use crate::{DebugInstruction, DebugItem};
 
 #[derive(Clone, Serialize)]
 pub struct DebugFunction {
     pub name: String,
-    pub variables: IndexMap<u32, DebugVariable>,
+    pub self_circuit_id: u32,
+    //pub variables: IndexMap<u32, DebugVariable>,
+    pub variables:Vec<u32>,
+    pub instructions: IndexMap<u32, DebugInstruction>,
+    pub arguments:Vec<u32>,
     pub line_start: u32,
     pub line_end: u32,
+
 }
 
 impl DebugFunction {
     pub fn new() -> Self {
         Self {
             name: String::from(""),
-            variables: IndexMap::new(),
+            self_circuit_id: 0,
+            variables: Vec::new(),
+            instructions: IndexMap::new(),
+            arguments: Vec::new(),
             line_start: 0,
             line_end: 0,
         }
     }
 
-    pub fn add_variable(&mut self, id: u32, variable: DebugVariable) {
-        self.variables.insert(id, variable);
-    }
+    pub fn add_variable(&mut self, id: u32) {
+        self.variables.push(id);
 
+        /*match self.variables.get(&id) {
+            Some(_variable) => {
+
+            }
+            None =>{
+                self.variables.insert(id, variable);
+            }
+        }*/
+    }
 }
 
 
@@ -42,7 +58,7 @@ impl<'a> fmt::Debug for DebugFunction {
 }
 
 impl<'a> PartialEq for DebugFunction {
-    fn eq(&self, other: &DebugFunction) -> bool {
+    fn eq(&self, _other: &DebugFunction) -> bool {
         true
     }
 }

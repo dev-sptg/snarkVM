@@ -19,6 +19,8 @@ mod evaluator;
 mod operations;
 mod setup;
 mod value;
+mod debugger;
+//mod debugdata;
 
 pub use evaluator::*;
 pub use setup::*;

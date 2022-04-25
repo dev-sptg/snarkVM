@@ -47,6 +47,10 @@ pub enum ConstrainedValue<F: PrimeField, G: GroupType<F>> {
 impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
 
     fn resolve_variable(&mut self, debugger: &mut Debugger, var_id: u32, value: &Self, variable: Option<&mut DebugVariable>) {
+        if !debugger.is_debug_mode {
+            return;
+        }
+
         match value {
             ConstrainedValue::Address(bytes) => {  }
             ConstrainedValue::Boolean(value) => {

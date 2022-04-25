@@ -79,6 +79,7 @@ type RegisterGetStackCallback = fn (target: *const Debugger, cb: extern fn(targe
 type RegisterTerminateDebug = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
 type AddStack = fn (stack: *mut StackExp);
 type AddVariables = fn (variables_reference: u32, variables: *mut VariableExp, count: u32);
+type StopDap = fn ();
 type NextStepResponse = fn ();
 
 extern "C" fn callback(target: *mut RustObject, src_path: *mut  c_char, _sz: i32) {
@@ -172,6 +173,7 @@ struct StrackEvent {
 pub struct Debugger {
     pair:Arc<(Mutex<bool>, Condvar)>,
     pub debug_data: DebugData,
+    pub is_debug_mode: bool,
     cur_stack_frameID: u32,
     cur_variables_referenceID: u32,
     cur_functionID: u32,
@@ -195,9 +197,11 @@ impl Debugger {
         let (tx, rx) = mpsc::channel();        
         let pathSo = Self::inner_main("debugger.dll").expect("Couldn't");
         let lib_main = lib::Library::new(pathSo).unwrap();
+        let debug_mode = debug_data.debug;
         Self {
             pair: Arc::new((Mutex::new(false), Condvar::new())),
             debug_data: debug_data,
+            is_debug_mode: debug_mode,
             cur_stack_frameID: 200,
             cur_variables_referenceID: 300,
             cur_functionID: 0,
@@ -218,12 +222,20 @@ impl Debugger {
     }
 
     pub fn wait_for_next_step(&mut self) {
+        if !self.is_debug_mode {
+            return;
+        }
+
         let (lock, cvar) = &*self.pair;
         let started = lock.lock().unwrap();
         cvar.wait(started);
     }
 
     pub fn update_position(&mut self, line_start: u32, line_end: u32) {
+        if !self.is_debug_mode {
+            return;
+        }
+
         match self.debug_data.stack.last_mut() {
             Some(func) => {
                 func.line_start = line_start;
@@ -234,6 +246,10 @@ impl Debugger {
     }
 
     pub fn set_self_reference(&mut self, self_circuit_id: u32) {
+        if !self.is_debug_mode {
+            return;
+        }
+
         match self.debug_data.stack.last_mut() {
             Some(func) => {
                 match self.debug_data.variables.get_mut(&self_circuit_id) {
@@ -255,6 +271,10 @@ impl Debugger {
 
 
     pub fn evaluate_instruction(&mut self, function_index: u32,  instruction_index: u32, ) {
+        if !self.is_debug_mode {
+            return;
+        }
+
         if self.call_depth == (self.debug_data.stack.len() as u32) && self.call_depth == self.cur_program_call_depth {
 
             match  self.debug_data.functions.get_mut(&function_index) {
@@ -295,146 +315,14 @@ impl Debugger {
                 None =>{
                 }
             }
-
-            /*let func = self.debug_data.functions.get_mut(&function_index).expect("return in non-function");
-            let instruction = func.instructions.get_mut(&instruction_index).expect("return in non-function");
-
-            let line_start = func.line_start;
-            let line_end = func.line_end;
-
-            if self.is_step_into {
-                self.is_step_into = false;
-
-                self.update_position(line_start, line_end);
-                let dept = self.get_debug_call_depth() + 1;
-                self.set_debug_call_depth(dept);
-
-                self.send_next_step_response();
-                self.wait_for_next_step();
-
-            }*/
-
-            /*let instruction = match func.instructions.get_mut(&instruction_index) {
-                Some(instruction) => {
-                    instruction
-                }
-                None => {
-                    return;
-                }
-            };*/
-
-
-           /* match func.instructions.get_mut(&instruction_index) {
-                Some(instruction) => {
-                    //let instruction_line_start = instruction.line_start;
-                    //let instruction_line_end = instruction.line_end;
-
-                    //self.update_position(instruction_line_start, instruction_line_end);
-                    //self.send_next_step_response();
-                    //self.wait_for_next_step();
-                }
-                None => {}
-            }*/
-
-            /*
-             match self.debug_data.functions.get(&function_index) {
-                Some(func) => {
-                    let f = func.clone();
-                    let line_start = f.line_start;
-                    let line_end = f.line_end;
-                    if self.is_step_into {
-                        self.is_step_into = false;
-
-                        self.update_position(line_start, line_end);
-                        let dept = self.get_debug_call_depth() + 1;
-                        self.set_debug_call_depth(dept);
-
-                        self.send_next_step_response();
-                        self.wait_for_next_step();
-
-                    }
-
-                    match func.instructions.get_mut(&instruction_index) {
-                        Some(instruction) => {
-                            //let instruction_line_start = instruction.line_start;
-                            //let instruction_line_end = instruction.line_end;
-
-                            //self.update_position(instruction_line_start, instruction_line_end);
-                            //self.send_next_step_response();
-                            //self.wait_for_next_step();
-                        }
-                        None => {}
-                    }
-
-                }
-                None =>{
-                }
-            }
-*/
-
-            /*match self.debug_data.functions.get_mut(&function_index) {
-                Some(func) => {
-                    match func.instructions.get_mut(&instruction_index) {
-                        Some(instruction) => {
-                            //self.update_position(instruction.line_start, instruction.line_end);
-                            self.send_next_step_response();
-                            self.wait_for_next_step();
-
-                            if self.is_step_into {
-                                self.is_step_into = false;
-                                let line_start = func.line_start;
-                                let line_end = func.line_end;
-
-
-                                //self.update_position(0, 0);
-                                //self.update_position(func.line_start, func.line_end);
-
-                                let dept = self.get_debug_call_depth() + 1;
-                                self.set_debug_call_depth(dept);
-
-                                self.send_next_step_response();
-                                self.wait_for_next_step();
-                            }
-                        }
-                        None => {}
-                    }
-                }
-                None => {}
-            }*/
-
-            /*match self.debug_data.instructions.get(&id) {
-                Some(item) => {
-                    self.update_position(item.line_start, item.line_end);
-                    self.send_next_step_response();
-                    self.wait_for_next_step();
-
-                    if self.is_step_into {
-                        self.is_step_into = false;
-                        match self.debug_data.functions.get(&index)  {
-                            Some(func) => {
-                                self.update_position(func.line_start, func.line_end);
-
-                                let dept = self.get_debug_call_depth() + 1;
-                                self.set_debug_call_depth(dept);
-
-                                self.send_next_step_response();
-                                self.wait_for_next_step();
-                            }
-                            None => {}
-                        }
-
-                    }
-                }
-                None => {}
-            }*/
         }
     }
 
-    pub fn set_variable_value_array(&mut self, func_id: u32, varID: u32, value: String) {
-
-    }
-
     pub fn resolve_variable(&mut self, var_id: u32, value: &Value, variable: Option< &mut DebugVariable>) {
+        if !self.is_debug_mode {
+            return;
+        }
+
         match value {
             Value::Address(bytes) => {  }
             Value::Boolean(value) => {  },
@@ -549,50 +437,18 @@ impl Debugger {
     }
 
     pub fn resolve_debug_variable(&mut self, var_id: u32, value: &Value) {
+        if !self.is_debug_mode {
+            return;
+        }
+
         self.resolve_variable(var_id, value, None);
     }
 
-
-    /*pub fn set_variable_value_string(&mut self, func_id: u32, varID: u32, value: String) {
-        match self.debug_data.variables.get_mut(&varID) {
-            Some(variable) => {
-                variable.value = value.clone();
-            }
-            None => {}
-        }
-    }*/
-
-    //pub fn set_variable_value_string(&mut self, func_id: u32, varID: u32, value: String) {
-    pub fn set_variable_value(&mut self, func_id: u32, varID: u32, value: Value) {
-
-        /*match self.debug_data.variables.get_mut(&varID) {
-            Some(variable) => {
-                variable.value = value.clone();
-            }
-            None =>{}
-        }*/
-
-
-        /*match self.debug_data.stack.last_mut() {
-            Some(func) => {
-                match func.variables.get_mut(&varID) {
-                    Some(dbg_item) => {
-                        match dbg_item {
-                            Variable(variable) => {
-                                variable.value = value.clone();
-                            }
-                            Function(_) => {}
-                        }
-                    }
-                    None =>{}
-
-                }
-            }
-            None =>{}
-        }*/
-    }
-
     pub fn set_sub_variable_values(&mut self, varID: u32, values: Vec<String>) {
+        if !self.is_debug_mode {
+            return;
+        }
+
         match self.debug_data.variables.get_mut(&varID) {
             Some(variable) => {
                 let mut index: usize = 0;
@@ -606,6 +462,10 @@ impl Debugger {
     }
 
     pub fn set_debug_call_depth(&mut self, call_depth:u32) {
+        if !self.is_debug_mode {
+            return;
+        }
+
         self.call_depth = call_depth;
     }
 
@@ -614,6 +474,9 @@ impl Debugger {
     }
 
     pub fn set_program_call_depth(&mut self, call_depth:u32) {
+        if !self.is_debug_mode {
+            return;
+        }
         self.cur_program_call_depth = call_depth;
     }
 
@@ -622,6 +485,10 @@ impl Debugger {
     }
 
     pub fn add_to_stack(&mut self, funcID: u32) {
+        if !self.is_debug_mode {
+            return;
+        }
+
         if self.call_depth > (self.debug_data.stack.len() as u32) {
             match self.debug_data.functions.get(&funcID) {
                 Some(func) => {
@@ -634,6 +501,10 @@ impl Debugger {
     }
 
     pub fn pop_stack(&mut self, call_depth: u32) {
+        if !self.is_debug_mode {
+            return;
+        }
+
         self.cur_program_call_depth = self.cur_program_call_depth - 1;
         if call_depth > 1 && call_depth == (self.debug_data.stack.len() as u32) {
             self.debug_data.stack.pop();
@@ -642,6 +513,10 @@ impl Debugger {
     }
 
     pub fn send_stack_frame(&mut self) {
+        if !self.is_debug_mode {
+            return;
+        }
+
         let stack = StrackEvent {
             event_id: 0,
             debug_data: self.debug_data.clone()
@@ -650,6 +525,10 @@ impl Debugger {
     }
 
     pub fn send_next_step_response(&mut self) {
+        if !self.is_debug_mode {
+            return;
+        }
+
        let stack = StrackEvent {
             event_id: 1,
             debug_data: self.debug_data.clone()
@@ -767,7 +646,9 @@ impl Debugger {
     }
 
     pub fn run_debugger(&mut self, input: &InputData) {
-
+        if !self.is_debug_mode {
+            return;
+        }
 
         unsafe {
             let register_get_stack_callback: lib::Symbol<RegisterGetStackCallback> = self.lib_main.get(b"register_get_stack_callback").unwrap();
@@ -850,50 +731,6 @@ impl Debugger {
                                 variables_count += 1; // need for self
                             }
 
-                            /*let dbg_func = DebugFunction {
-                                name: "test".to_string(),
-                                self_circuit_id: 0,
-                                variables: Vec::new(),
-                                instructions: IndexMap::new(),
-                                arguments: Vec::new(),
-                                line_start: 0,
-                                line_end: 0
-                            };
-
-                            let mut sub_variables: Vec<DebugVariable> = Vec::new();
-                            let mut var = DebugVariable {
-                                name: "arr".to_string(),
-                                type_: DebugVariableType::Integer,
-                                value: "".to_string(),
-                                circuit_id: 0,
-                                mutable: false,
-                                const_: false,
-                                line_start: 0,
-                                line_end: 0,
-                                sub_variables: Vec::new()
-                            };
-
-                            for i in 0..2000{
-                                var.sub_variables.push(DebugVariable {
-                                    name: format!("[{}]", i),
-                                    type_: DebugVariableType::Integer,
-                                    value: format!("{}", i),
-                                    circuit_id: 0,
-                                    mutable: false,
-                                    const_: false,
-                                    line_start: 0,
-                                    line_end: 0,
-                                    sub_variables: Vec::new()
-                                });
-                            }
-
-                            sub_variables.push(var);
-
-
-                            let ptr_variables = libc::malloc(size_of::<VariableExp>() * 1)  as *mut VariableExp;
-                            let variables_reference_id = Debugger::generate_variables(&add_variables, &debug_event, Some(&sub_variables), &dbg_func, ptr_variables, 1, cur_variables_reference_id);
-*/
-
                             let ptr_variables = libc::malloc(size_of::<VariableExp>() * variables_count)  as *mut VariableExp;
                             let variables_reference_id = Debugger::generate_variables(&add_variables, &debug_event, None, func, ptr_variables, variables_count as u32, cur_variables_reference_id);
 
@@ -954,6 +791,8 @@ impl Debugger {
                         libc::free(stack.stack as *mut c_void);
                     } else if debug_event.event_id == 1 {
                         next_step_response();
+                    } else if debug_event.event_id == 2 {
+
                     }
                 }
 

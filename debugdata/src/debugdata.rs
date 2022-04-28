@@ -51,7 +51,7 @@ impl DebugData {
 
     pub fn add_variable(&mut self, id: u32, variable: DebugVariable) {
         match self.variables.get(&id) {
-            Some(item) => {}
+            Some(_item) => {}
             None => {
                 self.variables.insert(id, variable);
             }

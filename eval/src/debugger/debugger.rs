@@ -4,25 +4,22 @@ use std::path::PathBuf;
 use std::io;
 use std::sync::{Arc, Condvar, mpsc, Mutex};
 use std::ffi::{CString};
-use std::os::raw::{c_char, c_int};
+use std::os::raw::{c_char};
 use std::ptr::{copy_nonoverlapping};
 use std::env;
 use std::sync::mpsc::{Receiver};
 use std::thread;
-use std::alloc::{alloc, dealloc, Layout};
-use libloading::Library;
-use snarkvm_debugdata::{DebugData, DebugFunction, DebugInstruction, DebugItem, DebugVariable, DebugVariableType};
-use snarkvm_debugdata::DebugItem::{ Function, Variable};
-use std::mem::size_of;
-use std::slice::from_raw_parts;
 use std::slice::from_raw_parts_mut;
-use indexmap::IndexMap;
 use libc::c_void;
+//use std::alloc::{alloc, dealloc, Layout};
+use libloading::Library;
+use snarkvm_debugdata::{DebugData, DebugFunction, DebugVariable, DebugVariableType};
+use std::mem::size_of;
+//use std::slice::from_raw_parts;
+//use indexmap::IndexMap;
 use snarkvm_debugdata::DebugVariableType::Circuit;
-use snarkvm_fields::PrimeField;
-use snarkvm_ir::Value::Array;
+//use snarkvm_fields::PrimeField;
 use std::process;
-use crate::{ConstrainedValue, GroupType};
 
 #[repr(C)]
 struct VariableExp {
@@ -65,8 +62,8 @@ struct StackExp {
 }
 
 extern "C" {
-    fn printf(fmt: *const c_char, ...) -> c_int;
-    fn strlen(arr: *const c_char) -> usize;
+    //fn printf(fmt: *const c_char, ...) -> c_int;
+    //fn strlen(arr: *const c_char) -> usize;
     fn strcpy(dst: *mut c_char, src: *const c_char) -> *mut c_char;
 }
 
@@ -79,11 +76,10 @@ type RegisterGetStackCallback = fn (target: *const Debugger, cb: extern fn(targe
 type RegisterTerminateDebug = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
 type AddStack = fn (stack: *mut StackExp);
 type AddVariables = fn (variables_reference: u32, variables: *mut VariableExp, count: u32);
-type StopDap = fn ();
 type NextStepResponse = fn ();
 
 extern "C" fn callback(target: *mut RustObject, src_path: *mut  c_char, _sz: i32) {
-    println!("Rust: I'm called from C");
+    //println!("Rust: I'm called from C");
 
     /*let path = CString::new("foo").expect("CString::new failed");
     let len = path.as_bytes_with_nul().len();
@@ -111,7 +107,7 @@ extern "C" fn callback(target: *mut RustObject, src_path: *mut  c_char, _sz: i32
 }
 
 extern "C" fn next_step(target: *mut RustObject) {
-    println!("Rust:next_step : I'm called from C");
+    //println!("Rust:next_step : I'm called from C");
     let robject = unsafe {
         assert!(!target.is_null());
         &mut *target
@@ -124,7 +120,7 @@ extern "C" fn next_step(target: *mut RustObject) {
 }
 
 extern "C" fn step_in(target: *mut Debugger) {
-    println!("Rust:step_in : I'm called from C");
+    //println!("Rust:step_in : I'm called from C");
     let debugger = unsafe {
         assert!(!target.is_null());
         &mut *target
@@ -139,7 +135,7 @@ extern "C" fn step_in(target: *mut Debugger) {
 }
 
 extern "C" fn get_stack_callback(target: *mut Debugger) {
-    println!("Rust:get_stack_callback : I'm called from C");
+    //println!("Rust:get_stack_callback : I'm called from C");
     let debugger = unsafe {
         assert!(!target.is_null());
         &mut *target
@@ -151,12 +147,13 @@ extern "C" fn get_stack_callback(target: *mut Debugger) {
 
 
 
-extern "C" fn terminate_debug(target: *mut Debugger) {
-    println!("Rust:step_in : I'm called from C");
-    let debugger = unsafe {
+extern "C" fn terminate_debug(_target: *mut Debugger) {
+    //println!("Rust:step_in : I'm called from C");
+    /*let debugger = unsafe {
         assert!(!target.is_null());
         &mut *target
-    };
+    };*/
+    println!("!!!!!!!!!!!!process::exit!!!!!!!!!!!!!!!!!!");
     process::exit(0x0);
 }
 
@@ -169,14 +166,14 @@ struct StrackEvent {
 
 //#[derive(Clone, Debug)]
 
-#[derive(Debug)]
+//#[derive(Debug)]
 pub struct Debugger {
     pair:Arc<(Mutex<bool>, Condvar)>,
     pub debug_data: DebugData,
     pub is_debug_mode: bool,
-    cur_stack_frameID: u32,
-    cur_variables_referenceID: u32,
-    cur_functionID: u32,
+    cur_stack_frame_id: u32,
+    cur_variables_reference_id: u32,
+    cur_function_id: u32,
     tx: mpsc::Sender<StrackEvent>,
     rx: Arc<Mutex<Receiver<StrackEvent>>>,
     lib_main: Library,
@@ -194,17 +191,29 @@ struct RustObject {
 
 impl Debugger {
     pub fn new(debug_data: DebugData) -> Self {
-        let (tx, rx) = mpsc::channel();        
-        let pathSo = Self::inner_main("debugger.dll").expect("Couldn't");
-        let lib_main = lib::Library::new(pathSo).unwrap();
+        let (tx, rx) = mpsc::channel();
+
+        let mut dap_lib = "".to_string();
+        if cfg!(windows) {
+            println!("Load library debugger.dll");
+            dap_lib = "debugger.dll".to_string();
+            println!("this is windows");
+        } else if cfg!(unix) {
+            println!("Load library libdebugger.so");
+            dap_lib = "libdebugger.so".to_string();
+            println!("this is unix");
+        }
+
+        let path_so = Self::inner_main(dap_lib.as_str()).expect("Couldn't");
+        let lib_main = lib::Library::new(path_so).unwrap();
         let debug_mode = debug_data.debug;
         Self {
             pair: Arc::new((Mutex::new(false), Condvar::new())),
             debug_data: debug_data,
             is_debug_mode: debug_mode,
-            cur_stack_frameID: 200,
-            cur_variables_referenceID: 300,
-            cur_functionID: 0,
+            cur_stack_frame_id: 200,
+            cur_variables_reference_id: 300,
+            cur_function_id: 0,
             tx: tx,
             rx: Arc::new(Mutex::new(rx)),
             lib_main: lib_main,
@@ -324,11 +333,11 @@ impl Debugger {
         }
 
         match value {
-            Value::Address(bytes) => {  }
-            Value::Boolean(value) => {  },
-            Value::Field(limbs) => {  },
-            Value::Char(c) => {  },
-            Value::Group(g) => {  },
+            Value::Address(_bytes) => {  }
+            Value::Boolean(_value) => {  },
+            Value::Field(_limbs) => {  },
+            Value::Char(_c) => {  },
+            Value::Group(_g) => {  },
             Value::Integer(i) => {
                 match variable {
                     None => {
@@ -444,12 +453,12 @@ impl Debugger {
         self.resolve_variable(var_id, value, None);
     }
 
-    pub fn set_sub_variable_values(&mut self, varID: u32, values: Vec<String>) {
+    pub fn set_sub_variable_values(&mut self, var_id: u32, values: Vec<String>) {
         if !self.is_debug_mode {
             return;
         }
 
-        match self.debug_data.variables.get_mut(&varID) {
+        match self.debug_data.variables.get_mut(&var_id) {
             Some(variable) => {
                 let mut index: usize = 0;
                 for item in &mut variable.sub_variables {
@@ -484,13 +493,13 @@ impl Debugger {
         self.cur_program_call_depth
     }
 
-    pub fn add_to_stack(&mut self, funcID: u32) {
+    pub fn add_to_stack(&mut self, func_id: u32) {
         if !self.is_debug_mode {
             return;
         }
 
         if self.call_depth > (self.debug_data.stack.len() as u32) {
-            match self.debug_data.functions.get(&funcID) {
+            match self.debug_data.functions.get(&func_id) {
                 Some(func) => {
                     self.debug_data.stack.push(func.clone());
                     self.debug_data.call_dept = self.debug_data.stack.len() as u32;
@@ -626,7 +635,7 @@ impl Debugger {
                     strcpy(arr_variables[index].type_, str_type);
                     strcpy(arr_variables[index].value, str_value);
 
-                    println!("name = {}; val = {}", variable.name, variable.value);
+                    //println!("name = {}; val = {}", variable.name, variable.value);
 
                     arr_variables[index].variables_reference = 0;
 
@@ -667,15 +676,25 @@ impl Debugger {
         let receiver = self.rx.clone();
 
         //let registers = input.registers.clone();
-        let main_input = input.main.clone();
+        //let main_input = input.main.clone();
         let file_path = input.debug_data.clone();
-        let mut cur_variables_reference_id = self.cur_variables_referenceID;
-        let mut frameID = self.cur_stack_frameID;
+        let mut cur_variables_reference_id = self.cur_variables_reference_id;
+        let mut frame_id = self.cur_stack_frame_id;
         let debug_port = self.debug_data.debug_port;
 
         thread::spawn(move || {
-            println!("Load library hello_debugger.dll");
-            let path_so = Self::inner_main("debugger.dll").expect("Couldn't");
+            let mut dap_lib = "".to_string();
+            if cfg!(windows) {
+                println!("Load library debugger.dll");
+                dap_lib = "debugger.dll".to_string();
+                println!("this is windows");
+            } else if cfg!(unix) {
+                println!("Load library libdebugger.so");
+                dap_lib = "libdebugger.so".to_string();
+                println!("this is unix");
+            }
+
+            let path_so = Self::inner_main(dap_lib.as_str()).expect("Couldn't");
             let lib = lib::Library::new(path_so).unwrap();
 
             unsafe {
@@ -686,9 +705,20 @@ impl Debugger {
         });
 
         thread::spawn(move || {
-            println!("Load library hello_debugger.dll");
-            let pathSo = Self::inner_main("debugger.dll").expect("Couldn't");
-            let lib = lib::Library::new(pathSo).unwrap();
+            let mut dap_lib = "".to_string();
+            if cfg!(windows) {
+                println!("Load library debugger.dll");
+                dap_lib = "debugger.dll".to_string();
+                println!("this is windows");
+            } else if cfg!(unix) {
+                println!("Load library libdebugger.so");
+                dap_lib = "libdebugger.so".to_string();
+                println!("this is unix");
+            }
+
+
+            let path_so = Self::inner_main(dap_lib.as_str()).expect("Couldn't");
+            let lib = lib::Library::new(path_so).unwrap();
             //let debug_data = self.de
             unsafe {
                 let register_callback: lib::Symbol<RegisterCallback> = lib.get(b"register_callback").unwrap();
@@ -710,21 +740,37 @@ impl Debugger {
                 register_callback(&mut *rust_object,  callback);
                 register_next_step(&mut *rust_object, next_step);
 
-
+                println!("Loop");
                 loop {
-                    println!("Loop");
-                    let debug_event = receiver.lock().unwrap().recv().unwrap();
-                    println!("receiver - debug_event");
+                    //
+                    let debug_event = match receiver.lock() {
+                        Ok(res) => {
+                            match res.recv() {
+                                Ok(rc) => {
+                                    rc
+                                }
+                                Err(_e) => {
+                                    return;
+                                }
+                            }
+                        }
+                        Err(_e) => {
+                            return;
+                        }
+                    };
+
+                    //let debug_event = receiver.lock().unwrap().recv().unwrap();
+                    println!("receiver - debug_event.event_id = {}", debug_event.event_id);
                     if debug_event.event_id == 0 {
                         let mut stack_index = 0;
                         let ptr_stack_frame = libc::malloc(size_of::<StackFrameExp>() * debug_event.debug_data.stack.len() ) as *mut StackFrameExp;
                         let arr_stack_frame = from_raw_parts_mut(ptr_stack_frame as *mut StackFrameExp, debug_event.debug_data.stack.len());
-                        let mut vec_stack:Vec<StackFrameExp> = Vec::with_capacity(debug_event.debug_data.stack.len());
+                        //let mut vec_stack:Vec<StackFrameExp> = Vec::with_capacity(debug_event.debug_data.stack.len());
                         for func in debug_event.debug_data.stack.iter() {
 
-                            let mut vec_scope:Vec<ScopeExp> = Vec::with_capacity(1);
-                            let mut vec_scopes:Vec<ScopesMapExp> = Vec::with_capacity(1);
-                            let mut vec:Vec<VariableExp> = Vec::with_capacity(func.variables.len());
+                            //let mut vec_scope:Vec<ScopeExp> = Vec::with_capacity(1);
+                            //let mut vec_scopes:Vec<ScopesMapExp> = Vec::with_capacity(1);
+                            //let mut vec:Vec<VariableExp> = Vec::with_capacity(func.variables.len());
 
                             let mut variables_count = func.variables.len();
                             if func.self_circuit_id != 0 {
@@ -758,14 +804,14 @@ impl Debugger {
                             let str_func_name = CString::new(func.name.clone()).unwrap().into_raw();
                             arr_stack_frame[stack_index].name = libc::malloc(size_of::<c_char>() * func.name.len()) as *mut c_char;
 
-                            arr_stack_frame[stack_index].id = frameID as i32;
+                            arr_stack_frame[stack_index].id = frame_id as i32;
                             arr_stack_frame[stack_index].scopes_map = ptr_scopes;
                             arr_stack_frame[stack_index].scopes_count = 1;
                             arr_stack_frame[stack_index].line = func.line_start as i32;
                             arr_stack_frame[stack_index].column = 1;
                             strcpy(arr_stack_frame[stack_index].name, str_func_name);
 
-                            frameID +=1;
+                            frame_id +=1;
                             stack_index += 1;
                             //vec_stack.push(stack_frame);
 

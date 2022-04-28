@@ -370,7 +370,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
                             debugger.evaluate_instruction(0, 0);
                         }
                         Value::Str(_) => {}
-                        Value::Ref(id) => {
+                        Value::Ref(_id) => {
                             debugger.evaluate_instruction(self.function_index, self.instruction_index);
                         }
                     };

@@ -52,27 +52,27 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
         }
 
         match value {
-            ConstrainedValue::Address(bytes) => {  }
+            ConstrainedValue::Address(_bytes) => {  }
             ConstrainedValue::Boolean(value) => {
                 match variable {
                     None => {
                         match debugger.debug_data.variables.get_mut(&var_id) {
                             Some(variable) => {
                                 variable.type_ = DebugVariableType::Boolean;
-                                variable.value = if (value.get_value().unwrap()) { "true".to_string() } else { "false".to_string()};
+                                variable.value = if value.get_value().unwrap() { "true".to_string() } else { "false".to_string()};
                             }
                             None => {}
                         }
                     }
                     Some(var) => {
                         var.type_ = DebugVariableType::Boolean;
-                        var.value = if (value.get_value().unwrap()) { "true".to_string() } else { "false".to_string()};
+                        var.value = if value.get_value().unwrap() { "true".to_string() } else { "false".to_string()};
                     }
                 }
             },
-            ConstrainedValue::Field(limbs) => {  },
-            ConstrainedValue::Char(c) => {  },
-            ConstrainedValue::Group(g) => {  },
+            ConstrainedValue::Field(_limbs) => {  },
+            ConstrainedValue::Char(_c) => {  },
+            ConstrainedValue::Group(_g) => {  },
             ConstrainedValue::Integer(i) => {
                 match variable {
                     None => {
@@ -181,7 +181,7 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                                         None =>{}
                                     }
                                 }
-                                ConstrainedValue::Array(items) => {
+                                ConstrainedValue::Array(_items) => {
                                     match debugger.debug_data.variables.get_mut(&var_id) {
                                         Some(variable) => {
                                             
@@ -202,7 +202,7 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                         }
 
                     }
-                    Some(var) => {
+                    Some(_var) => {
                       
                     }
                 }

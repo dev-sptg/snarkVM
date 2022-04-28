@@ -22,7 +22,6 @@ use crate::IntegerType;
 use super::*;
 
 use std::{convert::TryInto, fmt, mem, rc::Rc};
-use snarkvm_debugdata::DebugVariable;
 
 /// the possible outcomes of evaluating an instruction
 #[derive(Debug)]
@@ -419,7 +418,6 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
         cs: &mut CS,
     ) -> Result<ConstrainedValue<F, G>> {
         debugger.set_program_call_depth(state.call_depth);
-        let instruction_index = state.instruction_index;
 
         let mut evaluator = Self {
             call_stack: Vec::new(),

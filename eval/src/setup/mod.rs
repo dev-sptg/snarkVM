@@ -101,6 +101,7 @@ impl<F: PrimeField, G: GroupType<F>, CS: ConstraintSystem<F>> Evaluator<F, G> fo
         debugger.wait_for_next_step();
         let output = FunctionEvaluator::evaluate_function(&mut debugger, function, state, 0, &mut self.cs)?; // arguments assigned via input system for entrypoint
 
+        println!("!!!!!!!!!!!!Exit!!!!!!!!!!!!!!!!!!");
         Ok(output)
     }
 }

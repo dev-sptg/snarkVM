@@ -1,6 +1,5 @@
 use std::fmt;
 use serde::Serialize;
-use crate::DebugCircuit;
 
 #[derive(Clone, Serialize)]
 pub enum DebugVariableType {

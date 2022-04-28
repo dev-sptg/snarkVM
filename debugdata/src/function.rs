@@ -1,8 +1,7 @@
 use std::fmt;
-use crate::variable::DebugVariable;
 use indexmap::IndexMap;
 use serde::Serialize;
-use crate::{DebugInstruction, DebugItem};
+use crate::{DebugInstruction};
 
 #[derive(Clone, Serialize)]
 pub struct DebugFunction {

@@ -53,6 +53,7 @@ struct StackFrameExp {
     pub line: i32,
     pub column: i32,
     pub name: *mut c_char,
+    pub file_path: *mut c_char,
 }
 
 #[repr(C)]
@@ -74,9 +75,16 @@ type RegisterNextStep = fn (target: *mut RustObject, cb: extern fn(target: *mut 
 type RegisterStepIn = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
 type RegisterGetStackCallback = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
 type RegisterTerminateDebug = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
+
+type RegisterAddBreakpointCallback = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger, line: u32));
+type RegisterClearAllBreakpointsCallback = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
+type RegisterBreakpointHit = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
+
+type SetBreakpointLines = fn(src_id: u32, lines: *const u32, count: u32);
 type AddStack = fn (stack: *mut StackExp);
 type AddVariables = fn (variables_reference: u32, variables: *mut VariableExp, count: u32);
 type NextStepResponse = fn ();
+type BreakpointHitResponse = fn ();
 
 extern "C" fn callback(target: *mut RustObject, src_path: *mut  c_char, _sz: i32) {
     //println!("Rust: I'm called from C");
@@ -140,10 +148,43 @@ extern "C" fn get_stack_callback(target: *mut Debugger) {
         assert!(!target.is_null());
         &mut *target
     };
+
     debugger.send_stack_frame();
 }
 
 
+extern "C" fn add_breakpoint_callback(target: *mut Debugger, line: u32) {
+    //println!("Rust:get_stack_callback : I'm called from C");
+    let debugger = unsafe {
+        assert!(!target.is_null());
+        &mut *target
+    };
+
+    debugger.breakpoints.push(line);
+}
+
+extern "C" fn clear_all_breakpoints_callback(target: *mut Debugger) {
+    //println!("Rust:get_stack_callback : I'm called from C");
+    let debugger = unsafe {
+        assert!(!target.is_null());
+        &mut *target
+    };
+
+    debugger.breakpoints.clear();
+}
+
+extern "C" fn breakpoint_hit_callback(target: *mut Debugger) {
+    let debugger = unsafe {
+        assert!(!target.is_null());
+        &mut *target
+    };
+
+    let (lock, cvar) = &*debugger.pair;
+    let mut started = lock.lock().unwrap();
+    *started = true;
+    debugger.is_breakpoint_hit = true;
+    cvar.notify_one();
+}
 
 
 
@@ -158,8 +199,15 @@ extern "C" fn terminate_debug(_target: *mut Debugger) {
 }
 
 #[derive(Clone, Debug)]
+enum DebugEvent {
+    Stack,
+    NextStep,
+    BreakpointHit
+}
+
+#[derive(Clone, Debug)]
 struct StrackEvent {
-    pub event_id: u32,
+    pub event: DebugEvent,
     pub debug_data: DebugData,
 }
 
@@ -179,7 +227,9 @@ pub struct Debugger {
     lib_main: Library,
     call_depth: u32,
     cur_program_call_depth: u32,
-    pub is_step_into: bool
+    pub is_step_into: bool,
+    pub is_breakpoint_hit: bool,
+    pub breakpoints: Vec<u32>
 }
 
 #[repr(C)]
@@ -219,7 +269,9 @@ impl Debugger {
             lib_main: lib_main,
             call_depth: 1,
             cur_program_call_depth: 1,
-            is_step_into: false
+            is_step_into: false,
+            is_breakpoint_hit: false,
+            breakpoints: Vec::new()
         }
     }
 
@@ -286,7 +338,7 @@ impl Debugger {
 
         if self.call_depth == (self.debug_data.stack.len() as u32) && self.call_depth == self.cur_program_call_depth {
 
-            match  self.debug_data.functions.get_mut(&function_index) {
+            match self.debug_data.functions.get_mut(&function_index) {
                 Some(func) => {
                     let line_start = func.line_start;
                     let line_end = func.line_end;
@@ -313,9 +365,24 @@ impl Debugger {
                             let instruction_line_start = instruction.line_start;
                             let instruction_line_end = instruction.line_end;
 
-                            self.update_position(instruction_line_start, instruction_line_end);
-                            self.send_next_step_response();
-                            self.wait_for_next_step();
+                            if self.is_breakpoint_hit {
+                                match self.breakpoints.iter().position(|&r| r == instruction_line_start) {
+                                    Some(_) => {
+
+                                        self.update_position(instruction_line_start, instruction_line_end);
+                                        self.send_breakpoint_hit_response();
+                                        self.wait_for_next_step();
+                                    }
+                                    None => {
+
+                                    }
+                                }
+                            } else {
+                                self.update_position(instruction_line_start, instruction_line_end);
+                                self.send_next_step_response();
+                                self.wait_for_next_step();
+                            }
+
                         }
                         None => {}
                     }
@@ -527,7 +594,7 @@ impl Debugger {
         }
 
         let stack = StrackEvent {
-            event_id: 0,
+            event: DebugEvent::Stack,
             debug_data: self.debug_data.clone()
         };
         self.tx.send(stack).unwrap();
@@ -539,12 +606,36 @@ impl Debugger {
         }
 
        let stack = StrackEvent {
-            event_id: 1,
+            event: DebugEvent::NextStep,
             debug_data: self.debug_data.clone()
         };
         self.tx.send(stack).unwrap();
     }
 
+    pub fn send_breakpoint_hit_response(&mut self) {
+        if !self.is_debug_mode {
+            return;
+        }
+
+        self.is_breakpoint_hit = false;
+
+        let stack = StrackEvent {
+            event: DebugEvent::BreakpointHit,
+            debug_data: self.debug_data.clone()
+        };
+        self.tx.send(stack).unwrap();
+    }
+
+    unsafe fn free_variables(ptr_variables: *mut VariableExp, count: u32) {
+        let arr_variables = from_raw_parts_mut(ptr_variables as *mut VariableExp, count as usize);
+        for variable in arr_variables.iter() {
+            libc::free(variable.name as *mut c_void);
+            libc::free(variable.type_ as *mut c_void);
+            libc::free(variable.value as *mut c_void);
+        }
+
+        libc::free(ptr_variables  as *mut c_void);
+    }
 
 
     unsafe fn generate_variables(add_variables: &lib::Symbol<AddVariables>, debug_event: &StrackEvent, variables: Option<&Vec<DebugVariable>>, func: &DebugFunction, ptr_variables: *mut VariableExp, count: u32, variables_reference: u32) -> u32 {
@@ -619,6 +710,7 @@ impl Debugger {
                 }
 
                 add_variables(variables_reference, ptr_variables, count );
+                Debugger::free_variables(ptr_variables, count);
             }
 
             Some(variables) => {
@@ -663,10 +755,28 @@ impl Debugger {
             let register_get_stack_callback: lib::Symbol<RegisterGetStackCallback> = self.lib_main.get(b"register_get_stack_callback").unwrap();
             let register_step_in: lib::Symbol<RegisterStepIn>  = self.lib_main.get(b"register_step_in").unwrap();
             let register_terminate_debug: lib::Symbol<RegisterTerminateDebug>  = self.lib_main.get(b"register_terminate_debug").unwrap();
+            let set_breakpoint_lines: lib::Symbol<SetBreakpointLines>  = self.lib_main.get(b"set_breakpoint_lines").unwrap();
+            let register_add_breakpoint_callback: lib::Symbol<RegisterAddBreakpointCallback>  = self.lib_main.get(b"register_add_breakpoint_callback").unwrap();
+            let register_clear_all_breakpoints_callback: lib::Symbol<RegisterClearAllBreakpointsCallback>  = self.lib_main.get(b"register_clear_all_breakpoints_callback").unwrap();
+            let register_breakpoint_hit_callback: lib::Symbol<RegisterBreakpointHit> = self.lib_main.get(b"register_breakpoint_hit_callback").unwrap();
 
             register_get_stack_callback(&* self, get_stack_callback);
             register_step_in(&* self, step_in);
             register_terminate_debug(&* self, terminate_debug);
+            register_add_breakpoint_callback(&* self, add_breakpoint_callback);
+            register_clear_all_breakpoints_callback(&* self, clear_all_breakpoints_callback);
+            register_breakpoint_hit_callback(&* self, breakpoint_hit_callback);
+
+            let mut instructions: Vec<u32> = Vec::new();
+            for (_key, function) in &self.debug_data.functions {
+                for (_key, instruction) in &function.instructions {
+                    instructions.push(instruction.line_start);
+                }
+            }
+            let mut instructions_mem: Vec<u32> = Vec::with_capacity(instructions.len());
+            instructions_mem = instructions.clone();
+
+            set_breakpoint_lines(400, instructions_mem.as_ptr(), instructions_mem.len() as u32);
         }
 
 
@@ -727,18 +837,20 @@ impl Debugger {
 
                 let add_stack: lib::Symbol<AddStack> = lib.get(b"add_stack").unwrap();
                 let next_step_response: lib::Symbol<NextStepResponse> = lib.get(b"next_step_response").unwrap();
+                let breakpoint_hit_response: lib::Symbol<BreakpointHitResponse> = lib.get(b"breakpoint_hit_response").unwrap();
                 let add_variables: lib::Symbol<AddVariables> = lib.get(b"add_variables").unwrap();
 
                 println!("Rust: register_callback");
 
                 let mut rust_object = Box::new(RustObject {
-                    main_file_path: file_path,
+                    main_file_path: file_path.clone(),
                     mutex_pair: pair2,
 
                 });
 
                 register_callback(&mut *rust_object,  callback);
                 register_next_step(&mut *rust_object, next_step);
+
 
                 println!("Loop");
                 loop {
@@ -760,85 +872,94 @@ impl Debugger {
                     };
 
                     //let debug_event = receiver.lock().unwrap().recv().unwrap();
-                    println!("receiver - debug_event.event_id = {}", debug_event.event_id);
-                    if debug_event.event_id == 0 {
-                        let mut stack_index = 0;
-                        let ptr_stack_frame = libc::malloc(size_of::<StackFrameExp>() * debug_event.debug_data.stack.len() ) as *mut StackFrameExp;
-                        let arr_stack_frame = from_raw_parts_mut(ptr_stack_frame as *mut StackFrameExp, debug_event.debug_data.stack.len());
-                        //let mut vec_stack:Vec<StackFrameExp> = Vec::with_capacity(debug_event.debug_data.stack.len());
-                        for func in debug_event.debug_data.stack.iter() {
+                    //println!("receiver - debug_event.event_id = {}", debug_event.event_id);
 
-                            //let mut vec_scope:Vec<ScopeExp> = Vec::with_capacity(1);
-                            //let mut vec_scopes:Vec<ScopesMapExp> = Vec::with_capacity(1);
-                            //let mut vec:Vec<VariableExp> = Vec::with_capacity(func.variables.len());
+                    match debug_event.event {
+                        DebugEvent::Stack => {
+                            let mut stack_index = 0;
+                            let ptr_stack_frame = libc::malloc(size_of::<StackFrameExp>() * debug_event.debug_data.stack.len() ) as *mut StackFrameExp;
+                            let arr_stack_frame = from_raw_parts_mut(ptr_stack_frame as *mut StackFrameExp, debug_event.debug_data.stack.len());
+                            for func in debug_event.debug_data.stack.iter() {
+                                let mut variables_count = func.variables.len();
+                                if func.self_circuit_id != 0 {
+                                    variables_count += 1; // need for self
+                                }
 
-                            let mut variables_count = func.variables.len();
-                            if func.self_circuit_id != 0 {
-                                variables_count += 1; // need for self
+                                let ptr_variables = libc::malloc(size_of::<VariableExp>() * variables_count)  as *mut VariableExp;
+                                let variables_reference_id = Debugger::generate_variables(&add_variables, &debug_event, None, func, ptr_variables, variables_count as u32, cur_variables_reference_id);
+
+                                let ptr_scope = libc::malloc(size_of::<ScopeExp>() ) as *mut ScopeExp;
+                                let name = "Variables".to_string();
+                                let presentation_hint =  "Variables".to_string();
+
+                                (*ptr_scope).name = libc::malloc(size_of::<c_char>() * name.len()) as *mut c_char;
+                                (*ptr_scope).presentation_hint = libc::malloc(size_of::<c_char>() * presentation_hint.len()) as *mut c_char;
+
+                                let name = CString::new(name).unwrap().into_raw();
+                                let presentation_hint =  CString::new(presentation_hint).unwrap().into_raw();
+
+                                strcpy((*ptr_scope).name, name);
+                                strcpy((*ptr_scope).presentation_hint, presentation_hint);
+                                (*ptr_scope).variables_reference = cur_variables_reference_id;
+                                cur_variables_reference_id = variables_reference_id;
+
+
+                                let ptr_scopes = libc::malloc(size_of::<ScopesMapExp>() ) as *mut ScopesMapExp;
+                                (*ptr_scopes).scopes = ptr_scope;
+                                (*ptr_scopes).count = 1;
+
+
+                                let path = file_path.clone().as_path().display().to_string();
+                                let str_file_path = CString::new(path.clone()).unwrap().into_raw();
+                                let str_func_name = CString::new(func.name.clone()).unwrap().into_raw();
+                                arr_stack_frame[stack_index].name = libc::malloc(size_of::<c_char>() * func.name.len()) as *mut c_char;
+                                arr_stack_frame[stack_index].file_path = libc::malloc(size_of::<c_char>() * path.len()) as *mut c_char;
+
+                                arr_stack_frame[stack_index].id = frame_id as i32;
+                                arr_stack_frame[stack_index].scopes_map = ptr_scopes;
+                                arr_stack_frame[stack_index].scopes_count = 1;
+                                arr_stack_frame[stack_index].line = func.line_start as i32;
+                                arr_stack_frame[stack_index].column = 1;
+                                strcpy(arr_stack_frame[stack_index].name, str_func_name);
+                                strcpy(arr_stack_frame[stack_index].file_path, str_file_path);
+
+                                frame_id +=1;
+                                stack_index += 1;
+                                //vec_stack.push(stack_frame);
+
                             }
 
-                            let ptr_variables = libc::malloc(size_of::<VariableExp>() * variables_count)  as *mut VariableExp;
-                            let variables_reference_id = Debugger::generate_variables(&add_variables, &debug_event, None, func, ptr_variables, variables_count as u32, cur_variables_reference_id);
+                            let mut stack = StackExp {
+                                stack: ptr_stack_frame,
+                                stack_count: debug_event.debug_data.stack.len() as i32,
+                            };
 
-                            let ptr_scope = libc::malloc(size_of::<ScopeExp>() ) as *mut ScopeExp;
-                            let name = "Variables".to_string();
-                            let presentation_hint =  "Variables".to_string();
+                            println!("add_stack");
+                            add_stack(&mut stack);
 
-                            (*ptr_scope).name = libc::malloc(size_of::<c_char>() * name.len()) as *mut c_char;
-                            (*ptr_scope).presentation_hint = libc::malloc(size_of::<c_char>() * presentation_hint.len()) as *mut c_char;
-
-                            let name = CString::new(name).unwrap().into_raw();
-                            let presentation_hint =  CString::new(presentation_hint).unwrap().into_raw();
-
-                            strcpy((*ptr_scope).name, name);
-                            strcpy((*ptr_scope).presentation_hint, presentation_hint);
-                            (*ptr_scope).variables_reference = cur_variables_reference_id;
-                            cur_variables_reference_id = variables_reference_id;
-
-
-                            let ptr_scopes = libc::malloc(size_of::<ScopesMapExp>() ) as *mut ScopesMapExp;
-                            (*ptr_scopes).scopes = ptr_scope;
-                            (*ptr_scopes).count = 1;
-
-
-                            let str_func_name = CString::new(func.name.clone()).unwrap().into_raw();
-                            arr_stack_frame[stack_index].name = libc::malloc(size_of::<c_char>() * func.name.len()) as *mut c_char;
-
-                            arr_stack_frame[stack_index].id = frame_id as i32;
-                            arr_stack_frame[stack_index].scopes_map = ptr_scopes;
-                            arr_stack_frame[stack_index].scopes_count = 1;
-                            arr_stack_frame[stack_index].line = func.line_start as i32;
-                            arr_stack_frame[stack_index].column = 1;
-                            strcpy(arr_stack_frame[stack_index].name, str_func_name);
-
-                            frame_id +=1;
-                            stack_index += 1;
-                            //vec_stack.push(stack_frame);
-
-                        }
-
-                        let mut stack = StackExp {
-                            stack: ptr_stack_frame,
-                            stack_count: debug_event.debug_data.stack.len() as i32,
-                        };
-
-                        println!("add_stack");
-                        add_stack(&mut stack);
-
-                        for i in 0..stack.stack_count  as usize {
-                            let scopes_map = from_raw_parts_mut(arr_stack_frame[i].scopes_map as *mut ScopesMapExp, arr_stack_frame[i].scopes_count as usize);
-
-                            for j in 0..arr_stack_frame[i].scopes_count as usize {
-                                libc::free(scopes_map[j].scopes as *mut c_void);
+                            for i in 0..stack.stack_count  as usize {
+                                let scopes_map = from_raw_parts_mut(arr_stack_frame[i].scopes_map as *mut ScopesMapExp, arr_stack_frame[i].scopes_count as usize);
+                                for j in 0..arr_stack_frame[i].scopes_count as usize {
+                                    let scopes = from_raw_parts_mut(scopes_map[j].scopes as *mut ScopeExp, scopes_map[j].count as usize);
+                                    for x in 0..scopes_map[j].count as usize {
+                                        libc::free(scopes[x].name as *mut c_void);
+                                        libc::free(scopes[x].presentation_hint as *mut c_void);
+                                    }
+                                    libc::free(scopes_map[j].scopes as *mut c_void);
+                                }
+                                libc::free(arr_stack_frame[i].name as *mut c_void);
+                                libc::free(arr_stack_frame[i].file_path as *mut c_void);
+                                libc::free(arr_stack_frame[i].scopes_map as *mut c_void);
                             }
-                            libc::free(arr_stack_frame[i].scopes_map as *mut c_void);
+
+                            libc::free(stack.stack as *mut c_void);
                         }
-
-                        libc::free(stack.stack as *mut c_void);
-                    } else if debug_event.event_id == 1 {
-                        next_step_response();
-                    } else if debug_event.event_id == 2 {
-
+                        DebugEvent::NextStep => {
+                            next_step_response();
+                        }
+                        DebugEvent::BreakpointHit => {
+                            breakpoint_hit_response();
+                        }
                     }
                 }
 

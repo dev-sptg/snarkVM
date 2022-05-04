@@ -431,13 +431,13 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
                 Ok(Some(Instruction::Call(data))) => {
                     debugger.set_program_call_depth(evaluator.state_data.state.call_depth);
                     debugger.evaluate_instruction(evaluator.state_data.state.function_index, evaluator.state_data.state.instruction_index);
-                    if debugger.is_step_into {
+                    if debugger.is_step_into || debugger.is_breakpoint_hit {
                         let call_depth = debugger.get_debug_call_depth();
                         debugger.set_debug_call_depth(call_depth + 1);
                     }
                     evaluator.setup_call(debugger, data, cs)?;
 
-                    if debugger.is_step_into {
+                    if debugger.is_step_into || debugger.is_breakpoint_hit {
                         debugger.evaluate_instruction(evaluator.state_data.state.function_index, evaluator.state_data.state.instruction_index);
                     }
                 }
@@ -461,8 +461,11 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
                         evaluator.finish_repeat(iter_variable, debugger)?;
                     }
                     ParentInstruction::None => {
-                        debugger.send_next_step_response();
-                        debugger.wait_for_next_step();
+                        if !debugger.is_breakpoint_hit {
+                            debugger.send_next_step_response();
+                            debugger.wait_for_next_step();
+                        }
+
                         return Ok(evaluator.finish_evaluation());
                     }
                 },

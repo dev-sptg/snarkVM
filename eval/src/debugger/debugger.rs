@@ -1,9 +1,9 @@
 extern crate libloading as lib;
 use snarkvm_ir::{InputData, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::io;
 use std::sync::{Arc, Condvar, mpsc, Mutex};
-use std::ffi::{CString};
+use std::ffi::{CStr, CString};
 use std::os::raw::{c_char};
 use std::ptr::{copy_nonoverlapping};
 use std::env;
@@ -20,6 +20,7 @@ use std::mem::size_of;
 use snarkvm_debugdata::DebugVariableType::Circuit;
 //use snarkvm_fields::PrimeField;
 use std::process;
+
 
 #[repr(C)]
 struct VariableExp {
@@ -76,8 +77,8 @@ type RegisterStepIn = fn (target: *const Debugger, cb: extern fn(target: *mut De
 type RegisterGetStackCallback = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
 type RegisterTerminateDebug = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
 
-type RegisterAddBreakpointCallback = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger, line: u32));
-type RegisterClearAllBreakpointsCallback = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
+type RegisterAddBreakpointCallback = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger, src_path: *mut  c_char, line: u32));
+type RegisterClearAllBreakpointsCallback = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger, src_path: *mut  c_char));
 type RegisterBreakpointHit = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
 
 type SetBreakpointLines = fn(src_id: u32, lines: *const u32, count: u32);
@@ -153,24 +154,45 @@ extern "C" fn get_stack_callback(target: *mut Debugger) {
 }
 
 
-extern "C" fn add_breakpoint_callback(target: *mut Debugger, line: u32) {
+extern "C" fn add_breakpoint_callback(target: *mut Debugger,  src_path: *mut  c_char, line: u32) {
     //println!("Rust:get_stack_callback : I'm called from C");
     let debugger = unsafe {
         assert!(!target.is_null());
         &mut *target
     };
 
-    debugger.breakpoints.push(line);
+    let path = unsafe {CStr::from_ptr(src_path)};
+    let string = String::from(path.to_str().unwrap());
+    let file_path = string.clone();
+    let path = Path::new(&string);
+    if path.exists() {
+        debugger.breakpoints.push(Breakpoint {
+            file_path,//: string,//format!("{}", path.canonicalize().unwrap().display()),
+            line
+        });
+    }
 }
 
-extern "C" fn clear_all_breakpoints_callback(target: *mut Debugger) {
+extern "C" fn clear_all_breakpoints_callback(target: *mut Debugger,  src_path: *mut  c_char) {
     //println!("Rust:get_stack_callback : I'm called from C");
     let debugger = unsafe {
         assert!(!target.is_null());
         &mut *target
     };
 
-    debugger.breakpoints.clear();
+    let path = unsafe {CStr::from_ptr(src_path)};
+    let file_path = String::from(path.to_str().unwrap());
+    loop {
+        match debugger.breakpoints.iter_mut().position(|r| r.file_path == file_path) {
+            Some(index) => {
+                debugger.breakpoints.remove(index);
+            }
+            None => {
+                break;
+            }
+        }
+    }
+
 }
 
 extern "C" fn breakpoint_hit_callback(target: *mut Debugger) {
@@ -194,7 +216,7 @@ extern "C" fn terminate_debug(_target: *mut Debugger) {
         assert!(!target.is_null());
         &mut *target
     };*/
-    println!("!!!!!!!!!!!!process::exit!!!!!!!!!!!!!!!!!!");
+    println!("Leo: !!!!!!!!!!!!process::exit!!!!!!!!!!!!!!!!!!");
     process::exit(0x0);
 }
 
@@ -212,7 +234,13 @@ struct StrackEvent {
 }
 
 
-//#[derive(Clone, Debug)]
+#[derive(Clone, Debug)]
+pub struct Breakpoint {
+    file_path: String,
+    line: u32,
+}
+
+
 
 //#[derive(Debug)]
 pub struct Debugger {
@@ -228,8 +256,9 @@ pub struct Debugger {
     call_depth: u32,
     cur_program_call_depth: u32,
     pub is_step_into: bool,
+    pub is_call_instruction: bool,
     pub is_breakpoint_hit: bool,
-    pub breakpoints: Vec<u32>
+    pub breakpoints: Vec<Breakpoint>
 }
 
 #[repr(C)]
@@ -245,13 +274,13 @@ impl Debugger {
 
         let mut dap_lib = "".to_string();
         if cfg!(windows) {
-            println!("Load library debugger.dll");
+            println!("Leo: load library debugger.dll");
             dap_lib = "debugger.dll".to_string();
-            println!("this is windows");
+            println!("Leo: this is windows");
         } else if cfg!(unix) {
-            println!("Load library libdebugger.so");
+            println!("Leo: oad library libdebugger.so");
             dap_lib = "libdebugger.so".to_string();
-            println!("this is unix");
+            println!("Leo: this is unix");
         }
 
         let path_so = Self::inner_main(dap_lib.as_str()).expect("Couldn't");
@@ -270,6 +299,7 @@ impl Debugger {
             call_depth: 1,
             cur_program_call_depth: 1,
             is_step_into: false,
+            is_call_instruction: false,
             is_breakpoint_hit: false,
             breakpoints: Vec::new()
         }
@@ -343,9 +373,7 @@ impl Debugger {
                     let line_start = func.line_start;
                     let line_end = func.line_end;
 
-                    if self.is_step_into {
-                        self.is_step_into = false;
-
+                    if self.is_step_into && self.is_call_instruction {
                         self.update_position(line_start, line_end);
 
                         self.send_next_step_response();
@@ -357,16 +385,32 @@ impl Debugger {
                 }
             };
 
-
+            self.is_step_into = false;
+            self.is_call_instruction = false;
+            if instruction_index == std::u32::MAX {
+                return;
+            }
             match self.debug_data.functions.get_mut(&function_index) {
                 Some(func) => {
+                    let file_path = func.file_path.clone();
                     match func.instructions.get_mut(&instruction_index) {
                         Some(instruction) => {
                             let instruction_line_start = instruction.line_start;
                             let instruction_line_end = instruction.line_end;
 
+
                             if self.is_breakpoint_hit {
-                                match self.breakpoints.iter().position(|&r| r == instruction_line_start) {
+                                match self.breakpoints.iter_mut().position(|r| {
+                                    let path_func  = Path::new(&file_path);
+                                    let path_breakpoint = Path::new(&r.file_path);
+                                    let path_func = format!("{}", path_func.canonicalize().unwrap().display());
+                                    let path_breakpoint = format!("{}", path_breakpoint.canonicalize().unwrap().display());
+
+                                    //print!("{} : {}", path_func, path_breakpoint);
+
+                                    path_func == path_breakpoint && r.line == instruction_line_start
+                                }
+                                ) {
                                     Some(_) => {
 
                                         self.update_position(instruction_line_start, instruction_line_end);
@@ -795,13 +839,13 @@ impl Debugger {
         thread::spawn(move || {
             let mut dap_lib = "".to_string();
             if cfg!(windows) {
-                println!("Load library debugger.dll");
+                println!("Leo: load library debugger.dll");
                 dap_lib = "debugger.dll".to_string();
-                println!("this is windows");
+                println!("Leo: this is windows");
             } else if cfg!(unix) {
-                println!("Load library libdebugger.so");
+                println!("Leo: load library libdebugger.so");
                 dap_lib = "libdebugger.so".to_string();
-                println!("this is unix");
+                println!("Leo: this is unix");
             }
 
             let path_so = Self::inner_main(dap_lib.as_str()).expect("Couldn't");
@@ -809,7 +853,7 @@ impl Debugger {
 
             unsafe {
                 let run_server: lib::Symbol<RunServer> =  lib.get(b"run_server").unwrap();
-                println!("Rust: run_server");
+                println!("Leo: run debugger server");
                 run_server(debug_port);
             }
         });
@@ -817,13 +861,13 @@ impl Debugger {
         thread::spawn(move || {
             let mut dap_lib = "".to_string();
             if cfg!(windows) {
-                println!("Load library debugger.dll");
+                println!("Leo: load library debugger.dll");
                 dap_lib = "debugger.dll".to_string();
-                println!("this is windows");
+                println!("Leo: this is windows");
             } else if cfg!(unix) {
-                println!("Load library libdebugger.so");
+                println!("Leo: load library libdebugger.so");
                 dap_lib = "libdebugger.so".to_string();
-                println!("this is unix");
+                println!("Leo: this is unix");
             }
 
 
@@ -840,7 +884,7 @@ impl Debugger {
                 let breakpoint_hit_response: lib::Symbol<BreakpointHitResponse> = lib.get(b"breakpoint_hit_response").unwrap();
                 let add_variables: lib::Symbol<AddVariables> = lib.get(b"add_variables").unwrap();
 
-                println!("Rust: register_callback");
+                println!("Leo: register debugger callback");
 
                 let mut rust_object = Box::new(RustObject {
                     main_file_path: file_path.clone(),
@@ -851,8 +895,7 @@ impl Debugger {
                 register_callback(&mut *rust_object,  callback);
                 register_next_step(&mut *rust_object, next_step);
 
-
-                println!("Loop");
+                println!("Leo: run debugger event loop");
                 loop {
                     //
                     let debug_event = match receiver.lock() {
@@ -909,11 +952,11 @@ impl Debugger {
                                 (*ptr_scopes).count = 1;
 
 
-                                let path = file_path.clone().as_path().display().to_string();
-                                let str_file_path = CString::new(path.clone()).unwrap().into_raw();
+
+                                let str_file_path = CString::new(func.file_path.clone()).unwrap().into_raw();
                                 let str_func_name = CString::new(func.name.clone()).unwrap().into_raw();
                                 arr_stack_frame[stack_index].name = libc::malloc(size_of::<c_char>() * func.name.len()) as *mut c_char;
-                                arr_stack_frame[stack_index].file_path = libc::malloc(size_of::<c_char>() * path.len()) as *mut c_char;
+                                arr_stack_frame[stack_index].file_path = libc::malloc(size_of::<c_char>() * func.file_path.len()) as *mut c_char;
 
                                 arr_stack_frame[stack_index].id = frame_id as i32;
                                 arr_stack_frame[stack_index].scopes_map = ptr_scopes;
@@ -925,7 +968,6 @@ impl Debugger {
 
                                 frame_id +=1;
                                 stack_index += 1;
-                                //vec_stack.push(stack_frame);
 
                             }
 
@@ -934,7 +976,7 @@ impl Debugger {
                                 stack_count: debug_event.debug_data.stack.len() as i32,
                             };
 
-                            println!("add_stack");
+                            println!("Leo: add debug stack");
                             add_stack(&mut stack);
 
                             for i in 0..stack.stack_count  as usize {

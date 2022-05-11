@@ -438,7 +438,8 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
                     evaluator.setup_call(debugger, data, cs)?;
 
                     if debugger.is_step_into || debugger.is_breakpoint_hit {
-                        debugger.evaluate_instruction(evaluator.state_data.state.function_index, evaluator.state_data.state.instruction_index);
+                        debugger.is_call_instruction = true;
+                        debugger.evaluate_instruction(evaluator.state_data.state.function_index, std::u32::MAX);
                     }
                 }
                 Ok(Some(Instruction::Mask(data))) => {

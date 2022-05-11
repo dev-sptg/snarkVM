@@ -307,7 +307,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
                 let value = self.resolve(values.get(0).unwrap(), cs)?.into_owned();
                 if debugger.get_debug_call_depth() == self.get_call_depth() {
                     value.clone().resolve_debug_value(debugger, *destination);
-                    debugger.send_next_step_response();
+                    //debugger.send_next_step_response();
                 }
 
                 /*if debugger.get_debug_call_depth() == self.get_call_depth() {
@@ -359,18 +359,10 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
                 if debugger.get_debug_call_depth() == self.get_call_depth() {
                     let ret_val = value.clone();
                     match ret_val {
-                        Value::Address(_) => {}
-                        Value::Boolean(_) => {}
-                        Value::Field(_) => {}
-                        Value::Char(_) => {}
-                        Value::Group(_) => {}
-                        Value::Integer(_) => {}
-                        Value::Array(_) => {}
                         Value::Tuple(_) => {
                             debugger.evaluate_instruction(0, 0);
                         }
-                        Value::Str(_) => {}
-                        Value::Ref(_id) => {
+                        _ => {
                             debugger.evaluate_instruction(self.function_index, self.instruction_index);
                         }
                     };

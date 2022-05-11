@@ -6,6 +6,7 @@ use crate::{DebugInstruction};
 #[derive(Clone, Serialize)]
 pub struct DebugFunction {
     pub name: String,
+    pub file_path: String,
     pub self_circuit_id: u32,
     //pub variables: IndexMap<u32, DebugVariable>,
     pub variables:Vec<u32>,
@@ -20,6 +21,7 @@ impl DebugFunction {
     pub fn new() -> Self {
         Self {
             name: String::from(""),
+            file_path: String::from(""),
             self_circuit_id: 0,
             variables: Vec::new(),
             instructions: IndexMap::new(),

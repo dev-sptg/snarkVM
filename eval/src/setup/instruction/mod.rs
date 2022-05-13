@@ -392,7 +392,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
             Instruction::Log(LogData { log_level, parts }) => {
                 if debugger.get_debug_call_depth() == self.get_call_depth() {
                     debugger.evaluate_instruction(self.function_index, self.instruction_index);
-                    debugger.send_next_step_response();
+                    //debugger.send_next_step_response();
                 }
 
                 let mut out = String::new();

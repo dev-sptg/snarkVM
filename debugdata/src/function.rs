@@ -12,6 +12,7 @@ pub struct DebugFunction {
     pub variables:Vec<u32>,
     pub instructions: IndexMap<u32, DebugInstruction>,
     pub arguments:Vec<u32>,
+    pub current_line: u32,
     pub line_start: u32,
     pub line_end: u32,
 
@@ -26,6 +27,7 @@ impl DebugFunction {
             variables: Vec::new(),
             instructions: IndexMap::new(),
             arguments: Vec::new(),
+            current_line: 0,
             line_start: 0,
             line_end: 0,
         }

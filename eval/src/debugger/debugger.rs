@@ -74,6 +74,7 @@ type RunServer = fn(port: u32) -> i32;
 type RegisterCallback = fn (target: *mut RustObject, cb: extern fn(target: *mut RustObject, *mut  c_char, i32));
 type RegisterNextStep = fn (target: *mut RustObject, cb: extern fn(target: *mut RustObject));
 type RegisterStepIn = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
+type RegisterStepOut = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
 type RegisterGetStackCallback = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
 type RegisterTerminateDebug = fn (target: *const Debugger, cb: extern fn(target: *mut Debugger));
 
@@ -136,6 +137,21 @@ extern "C" fn step_in(target: *mut Debugger) {
     };
     
     debugger.is_step_into = true;
+
+    let (lock, cvar) = &*debugger.pair;
+    let mut started = lock.lock().unwrap();
+    *started = true;
+    cvar.notify_one();
+}
+
+extern "C" fn step_out(target: *mut Debugger) {
+    //println!("Rust:step_in : I'm called from C");
+    let debugger = unsafe {
+        assert!(!target.is_null());
+        &mut *target
+    };
+
+   debugger.is_step_out = true;
 
     let (lock, cvar) = &*debugger.pair;
     let mut started = lock.lock().unwrap();
@@ -256,6 +272,7 @@ pub struct Debugger {
     call_depth: u32,
     cur_program_call_depth: u32,
     pub is_step_into: bool,
+    pub is_step_out: bool,
     pub is_call_instruction: bool,
     pub is_breakpoint_hit: bool,
     pub breakpoints: Vec<Breakpoint>
@@ -299,6 +316,7 @@ impl Debugger {
             call_depth: 1,
             cur_program_call_depth: 1,
             is_step_into: false,
+            is_step_out: false,
             is_call_instruction: false,
             is_breakpoint_hit: false,
             breakpoints: Vec::new()
@@ -322,14 +340,14 @@ impl Debugger {
         cvar.wait(started);
     }
 
-    pub fn update_position(&mut self, line_start: u32, line_end: u32) {
+    pub fn update_position(&mut self, current_line: u32, line_end: u32) {
         if !self.is_debug_mode {
             return;
         }
 
         match self.debug_data.stack.last_mut() {
             Some(func) => {
-                func.line_start = line_start;
+                func.current_line = current_line;
                 func.line_end = line_end;
             }
             None =>{}
@@ -360,8 +378,18 @@ impl Debugger {
         }
     }
 
+    pub fn step_out(&mut self) {
+        if self.is_step_out {
+            self.is_step_out = false;
 
-    pub fn evaluate_instruction(&mut self, function_index: u32,  instruction_index: u32, ) {
+            let debug_call_depth =  self.get_debug_call_depth();
+            self.pop_stack(debug_call_depth);
+            self.send_next_step_response();
+            self.wait_for_next_step();
+        }
+    }
+
+    pub fn evaluate_instruction(&mut self, function_index: u32,  instruction_index: u32 ) {
         if !self.is_debug_mode {
             return;
         }
@@ -378,6 +406,8 @@ impl Debugger {
 
                         self.send_next_step_response();
                         self.wait_for_next_step();
+
+                        self.step_out();
 
                     }
                 }
@@ -416,6 +446,7 @@ impl Debugger {
                                         self.update_position(instruction_line_start, instruction_line_end);
                                         self.send_breakpoint_hit_response();
                                         self.wait_for_next_step();
+                                        self.step_out();
                                     }
                                     None => {
 
@@ -425,6 +456,7 @@ impl Debugger {
                                 self.update_position(instruction_line_start, instruction_line_end);
                                 self.send_next_step_response();
                                 self.wait_for_next_step();
+                                self.step_out();
                             }
 
                         }
@@ -612,7 +644,9 @@ impl Debugger {
         if self.call_depth > (self.debug_data.stack.len() as u32) {
             match self.debug_data.functions.get(&func_id) {
                 Some(func) => {
-                    self.debug_data.stack.push(func.clone());
+                    let mut new_func = func.clone();
+                    new_func.current_line = new_func.line_start;
+                    self.debug_data.stack.push(new_func);
                     self.debug_data.call_dept = self.debug_data.stack.len() as u32;
                 }
                 None => {}
@@ -626,6 +660,11 @@ impl Debugger {
         }
 
         self.cur_program_call_depth = self.cur_program_call_depth - 1;
+        if self.cur_program_call_depth < 1 {
+            self.cur_program_call_depth = 1;
+            return;
+        }
+
         if call_depth > 1 && call_depth == (self.debug_data.stack.len() as u32) {
             self.debug_data.stack.pop();
             self.set_debug_call_depth(call_depth - 1);
@@ -798,6 +837,7 @@ impl Debugger {
         unsafe {
             let register_get_stack_callback: lib::Symbol<RegisterGetStackCallback> = self.lib_main.get(b"register_get_stack_callback").unwrap();
             let register_step_in: lib::Symbol<RegisterStepIn>  = self.lib_main.get(b"register_step_in").unwrap();
+            let register_step_out: lib::Symbol<RegisterStepIn>  = self.lib_main.get(b"register_step_out").unwrap();
             let register_terminate_debug: lib::Symbol<RegisterTerminateDebug>  = self.lib_main.get(b"register_terminate_debug").unwrap();
             let set_breakpoint_lines: lib::Symbol<SetBreakpointLines>  = self.lib_main.get(b"set_breakpoint_lines").unwrap();
             let register_add_breakpoint_callback: lib::Symbol<RegisterAddBreakpointCallback>  = self.lib_main.get(b"register_add_breakpoint_callback").unwrap();
@@ -806,6 +846,7 @@ impl Debugger {
 
             register_get_stack_callback(&* self, get_stack_callback);
             register_step_in(&* self, step_in);
+            register_step_out(&* self, step_out);
             register_terminate_debug(&* self, terminate_debug);
             register_add_breakpoint_callback(&* self, add_breakpoint_callback);
             register_clear_all_breakpoints_callback(&* self, clear_all_breakpoints_callback);
@@ -961,7 +1002,7 @@ impl Debugger {
                                 arr_stack_frame[stack_index].id = frame_id as i32;
                                 arr_stack_frame[stack_index].scopes_map = ptr_scopes;
                                 arr_stack_frame[stack_index].scopes_count = 1;
-                                arr_stack_frame[stack_index].line = func.line_start as i32;
+                                arr_stack_frame[stack_index].line = func.current_line as i32;
                                 arr_stack_frame[stack_index].column = 1;
                                 strcpy(arr_stack_frame[stack_index].name, str_func_name);
                                 strcpy(arr_stack_frame[stack_index].file_path, str_file_path);

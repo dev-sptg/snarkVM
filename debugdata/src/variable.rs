@@ -3,10 +3,13 @@ use serde::Serialize;
 
 #[derive(Clone, Serialize)]
 pub enum DebugVariableType {
+    Group,
     Integer,
     Circuit,
     Array,
     Boolean,
+    Field,
+    String
 }
 
 #[derive(Clone, Serialize)]

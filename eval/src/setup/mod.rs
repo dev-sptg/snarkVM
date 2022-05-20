@@ -70,7 +70,7 @@ impl<F: PrimeField, G: GroupType<F>, CS: ConstraintSystem<F>> Evaluator<F, G> fo
 
         let mut state = EvaluatorState::new( program);
         state.handle_input_block(&mut debugger,"main", &program.header.main_inputs, &input.main, &mut self.cs)?;
-        state.handle_const_input_block(&program.header.constant_inputs, &input.constants, &mut self.cs)?;
+        state.handle_const_input_block(&mut debugger, &program.header.constant_inputs, &input.constants, &mut self.cs)?;
         state.handle_input_block(&mut debugger,
             "register",
             &program.header.register_inputs,

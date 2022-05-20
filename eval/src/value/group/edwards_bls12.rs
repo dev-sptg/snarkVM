@@ -46,6 +46,7 @@ use core::{
     borrow::Borrow,
     ops::{Add, Mul, Neg, Sub},
 };
+use std::fmt::format;
 
 #[derive(Clone, Debug)]
 pub enum EdwardsGroupType {
@@ -130,6 +131,24 @@ impl GroupType<Fq> for EdwardsGroupType {
                         .sub_constant(cs, constant_value)
                         .map_err(|e| GroupError::binary_operation("-".to_string(), e))?,
                 )))
+            }
+        }
+    }
+
+    fn get_debug_value(&self) -> Vec<String> {
+        match self {
+            EdwardsGroupType::Constant(constant) => {
+                let mut vec = Vec::new();
+                vec.push(format!("x: {}", constant.x));
+                vec.push(format!("y: {}", constant.y));
+                vec
+            }
+            EdwardsGroupType::Allocated(allocated) => {
+                let mut vec = Vec::new();
+                let mut str_def = "failed to get value".to_string();
+                vec.push(format!("x: {:?}", allocated.x.get_value().unwrap()));
+                vec.push(format!("y: {:?}", allocated.y.get_value().unwrap()));
+                vec
             }
         }
     }

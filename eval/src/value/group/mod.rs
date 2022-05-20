@@ -56,4 +56,6 @@ pub trait GroupType<F: Field>:
     fn add<CS: ConstraintSystem<F>>(&self, cs: CS, other: &Self) -> Result<Self, GroupError>;
 
     fn sub<CS: ConstraintSystem<F>>(&self, cs: CS, other: &Self) -> Result<Self, GroupError>;
+
+    fn get_debug_value(&self) -> Vec<String>;
 }

@@ -360,7 +360,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
                     let ret_val = value.clone();
                     match ret_val {
                         Value::Tuple(_) => {
-                            debugger.evaluate_instruction(0, 0);
+                            debugger.evaluate_instruction(self.function_index, self.instruction_index);
                         }
                         _ => {
                             debugger.evaluate_instruction(self.function_index, self.instruction_index);

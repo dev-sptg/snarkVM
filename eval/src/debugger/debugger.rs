@@ -711,11 +711,11 @@ impl Debugger {
 
     unsafe fn free_variables(ptr_variables: *mut VariableExp, count: u32) {
         let arr_variables = from_raw_parts_mut(ptr_variables as *mut VariableExp, count as usize);
-        for variable in arr_variables.iter() {
+        /*for variable in arr_variables.iter() {
             libc::free(variable.name as *mut c_void);
             libc::free(variable.type_ as *mut c_void);
             libc::free(variable.value as *mut c_void);
-        }
+        }*/
 
         libc::free(ptr_variables  as *mut c_void);
     }
@@ -735,13 +735,17 @@ impl Debugger {
                             //let variable = alloc(layout)  as *mut VariableExp;
 
                             let type_ = "u32".to_string();
-                            arr_variables[index].name = libc::malloc(size_of::<c_char>() * variable.name.len()) as *mut c_char;
-                            arr_variables[index].type_ = libc::malloc(size_of::<c_char>() * type_.len()) as *mut c_char;
-                            arr_variables[index].value = libc::malloc(size_of::<c_char>() * variable.value.len()) as *mut c_char;
+                            arr_variables[index].name = libc::malloc(size_of::<c_char>() * (variable.name.len() + 1)) as *mut c_char;
+                            arr_variables[index].type_ = libc::malloc(size_of::<c_char>() * (type_.len() + 1)) as *mut c_char;
+                            arr_variables[index].value = libc::malloc(size_of::<c_char>() * (variable.value.len() + 1)) as *mut c_char;
 
                             let str_name = CString::new(variable.name.clone()).unwrap().into_raw();
                             let str_value = CString::new(variable.value.clone()).unwrap().into_raw();
                             let str_type = CString::new(type_).unwrap().into_raw();
+                            //strcpy(arr_variables[index].name, str_name);
+                            //strcpy(arr_variables[index].type_, str_type);
+                            //strcpy(arr_variables[index].value, str_value);
+
                             strcpy(arr_variables[index].name, str_name);
                             strcpy(arr_variables[index].type_, str_type);
                             strcpy(arr_variables[index].value, str_value);
@@ -765,9 +769,9 @@ impl Debugger {
                     let type_ = "u32".to_string();
                     let value = "Circuit".to_string();
 
-                    arr_variables[index].name = libc::malloc(size_of::<c_char>() * str_self.len()) as *mut c_char;
-                    arr_variables[index].type_ = libc::malloc(size_of::<c_char>() * type_.len()) as *mut c_char;
-                    arr_variables[index].value = libc::malloc(size_of::<c_char>() * value.len()) as *mut c_char;
+                    arr_variables[index].name = libc::malloc(size_of::<c_char>() * (str_self.len() + 1)) as *mut c_char;
+                    arr_variables[index].type_ = libc::malloc(size_of::<c_char>() * (type_.len() + 1)) as *mut c_char;
+                    arr_variables[index].value = libc::malloc(size_of::<c_char>() * (value.len() + 1)) as *mut c_char;
 
                     let str_name = CString::new(str_self.clone()).unwrap().into_raw();
                     let str_value = CString::new(value.clone()).unwrap().into_raw();
@@ -799,9 +803,9 @@ impl Debugger {
             Some(variables) => {
                 for variable in  variables {
                     let type_ = "u32".to_string();
-                    arr_variables[index].name = libc::malloc(size_of::<c_char>() * variable.name.len()) as *mut c_char;
-                    arr_variables[index].type_ = libc::malloc(size_of::<c_char>() * type_.len()) as *mut c_char;
-                    arr_variables[index].value = libc::malloc(size_of::<c_char>() * variable.value.len()) as *mut c_char;
+                    arr_variables[index].name = libc::malloc(size_of::<c_char>() * (variable.name.len() + 1)) as *mut c_char;
+                    arr_variables[index].type_ = libc::malloc(size_of::<c_char>() * (type_.len() + 1)) as *mut c_char;
+                    arr_variables[index].value = libc::malloc(size_of::<c_char>() * (variable.value.len() + 1)) as *mut c_char;
 
                     let str_name = CString::new(variable.name.clone()).unwrap().into_raw();
                     let str_value = CString::new(variable.value.clone()).unwrap().into_raw();
@@ -824,6 +828,7 @@ impl Debugger {
                     index += 1;
                 }
                 add_variables(variables_reference, ptr_variables, count);
+                Debugger::free_variables(ptr_variables, count);
             }
         }
         cur_variables_reference

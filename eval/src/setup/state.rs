@@ -171,7 +171,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> FunctionEvaluator<'a, F, G> {
                     }
                 }
                 debugger.set_sub_variable_values(data.destination, values);
-                debugger.send_next_step_response();
+                //debugger.send_next_step_response();
             }
             Err(_) => {}
         }
@@ -829,6 +829,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
 
     pub fn handle_const_input_block<CS: ConstraintSystem<F>>(
         &mut self,
+        debugger: &mut Debugger,
         input_header: &[IrInput],
         input_values: &IndexMap<String, Value>,
         cs: &mut CS,
@@ -845,6 +846,7 @@ impl<'a, F: PrimeField, G: GroupType<F>> EvaluatorState<'a, F, G> {
                 ));
             }
             let value = self.resolve(value, cs)?.into_owned();
+            value.clone().resolve_debug_value(debugger, ir_input.variable);
             self.variables.insert(ir_input.variable, value);
         }
         Ok(())

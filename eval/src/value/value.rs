@@ -17,15 +17,14 @@
 use crate::{Address, Char, FieldType, GroupType, Integer};
 
 use snarkvm_fields::PrimeField;
-use snarkvm_gadgets::{
-    bits::Boolean,
-    traits::{eq::ConditionalEqGadget, select::CondSelectGadget},
-};
-use snarkvm_ir::Type;
+use snarkvm_gadgets::{bits::Boolean, FieldGadget, traits::{eq::ConditionalEqGadget, select::CondSelectGadget}};
+use snarkvm_ir::{Group, Type};
 use snarkvm_r1cs::{ConstraintSystem, SynthesisError};
 use std::fmt;
+use std::mem::discriminant;
 use crate::debugger::Debugger;
 use snarkvm_debugdata::{DebugVariable, DebugVariableType};
+use crate::edwards_bls12::EdwardsGroupType;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConstrainedValue<F: PrimeField, G: GroupType<F>> {
@@ -70,9 +69,106 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                     }
                 }
             },
-            ConstrainedValue::Field(_limbs) => {  },
+            ConstrainedValue::Field(_limbs) => {
+                match variable {
+                    None => {
+                        match debugger.debug_data.variables.get_mut(&var_id) {
+                            Some(variable) => {
+                                variable.type_ = DebugVariableType::Field;
+                                variable.value = format!("{}", _limbs.get_value().unwrap());
+                            }
+                            None => {}
+                        }
+                    }
+                    Some(var) => {
+                        var.type_ = DebugVariableType::Field;
+                        var.value = format!("{}", _limbs.get_value().unwrap());
+                    }
+                }
+            },
             ConstrainedValue::Char(_c) => {  },
-            ConstrainedValue::Group(_g) => {  },
+            ConstrainedValue::Group(g) => {
+                match variable {
+                    None => {
+                        match debugger.debug_data.variables.get_mut(&var_id) {
+                            Some(variable) => {
+
+                                let vec = g.get_debug_value();
+                                if vec.len() >= 2 {
+                                    let mut str_def = String::from("");
+                                    let x = vec.get(0).unwrap_or(&str_def);
+                                    let y = vec.get(0).unwrap_or(&str_def);
+                                    variable.sub_variables.push(DebugVariable{
+                                        name: x.clone(),
+                                        type_: DebugVariableType::Group,
+                                        value: "".to_string(),
+                                        circuit_id: 0,
+                                        mutable: false,
+                                        const_: false,
+                                        line_start: 0,
+                                        line_end: 0,
+                                        sub_variables: vec![]
+                                    });
+
+                                    variable.sub_variables.push(DebugVariable{
+                                        name: y.clone(),
+                                        type_: DebugVariableType::Group,
+                                        value: "".to_string(),
+                                        circuit_id: 0,
+                                        mutable: false,
+                                        const_: false,
+                                        line_start: 0,
+                                        line_end: 0,
+                                        sub_variables: vec![]
+                                    });
+                                } else {
+                                    variable.type_ = DebugVariableType::Group;
+                                    variable.value = format!("{}", g);
+                                }
+                            }
+                            None => {}
+                        }
+                    }
+                    Some(var) => {
+                        let vec = g.get_debug_value();
+                        if vec.len() >= 2 {
+                            let mut str_def = String::from("");
+                            let x = vec.get(0).unwrap_or(&str_def);
+                            let y = vec.get(0).unwrap_or(&str_def);
+                            var.sub_variables.push(DebugVariable{
+                                name: x.clone(),
+                                type_: DebugVariableType::Group,
+                                value: "".to_string(),
+                                circuit_id: 0,
+                                mutable: false,
+                                const_: false,
+                                line_start: 0,
+                                line_end: 0,
+                                sub_variables: vec![]
+                            });
+
+                            var.sub_variables.push(DebugVariable{
+                                name: y.clone(),
+                                type_: DebugVariableType::Group,
+                                value: "".to_string(),
+                                circuit_id: 0,
+                                mutable: false,
+                                const_: false,
+                                line_start: 0,
+                                line_end: 0,
+                                sub_variables: vec![]
+                            });
+                        } else {
+                            var.type_ = DebugVariableType::Group;
+                            var.value = format!("{}", g);
+                        }
+
+
+
+
+                    }
+                }
+            },
             ConstrainedValue::Integer(i) => {
                 match variable {
                     None => {

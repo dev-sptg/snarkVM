@@ -86,24 +86,42 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                     }
                 }
             },
-            ConstrainedValue::Char(_c) => {  },
+            ConstrainedValue::Char(c) => {
+                match variable {
+                    None => {
+                        match debugger.debug_data.variables.get_mut(&var_id) {
+                            Some(variable) => {
+                                variable.type_ = DebugVariableType::Char;
+                                variable.value = format!("{}", c);
+                            }
+                            None => {}
+                        }
+                    }
+                    Some(var) => {
+                        var.type_ = DebugVariableType::Char;
+                        var.value = format!("{}", c);
+                    }
+                }
+            },
             ConstrainedValue::Group(g) => {
                 match variable {
                     None => {
                         match debugger.debug_data.variables.get_mut(&var_id) {
                             Some(variable) => {
-
+                                variable.value = "Group".to_string();
+                                variable.type_ = DebugVariableType::Group;
                                 let vec = g.get_debug_value();
                                 if vec.len() >= 2 {
                                     let mut str_def = String::from("");
                                     let x = vec.get(0).unwrap_or(&str_def);
-                                    let y = vec.get(0).unwrap_or(&str_def);
+                                    let y = vec.get(1).unwrap_or(&str_def);
                                     variable.sub_variables.push(DebugVariable{
                                         name: x.clone(),
                                         type_: DebugVariableType::Group,
                                         value: "".to_string(),
                                         circuit_id: 0,
                                         mutable: false,
+                                        is_argument: false,
                                         const_: false,
                                         line_start: 0,
                                         line_end: 0,
@@ -116,6 +134,7 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                                         value: "".to_string(),
                                         circuit_id: 0,
                                         mutable: false,
+                                        is_argument: false,
                                         const_: false,
                                         line_start: 0,
                                         line_end: 0,
@@ -134,13 +153,14 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                         if vec.len() >= 2 {
                             let mut str_def = String::from("");
                             let x = vec.get(0).unwrap_or(&str_def);
-                            let y = vec.get(0).unwrap_or(&str_def);
+                            let y = vec.get(1).unwrap_or(&str_def);
                             var.sub_variables.push(DebugVariable{
                                 name: x.clone(),
                                 type_: DebugVariableType::Group,
                                 value: "".to_string(),
                                 circuit_id: 0,
                                 mutable: false,
+                                is_argument: false,
                                 const_: false,
                                 line_start: 0,
                                 line_end: 0,
@@ -153,6 +173,7 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                                 value: "".to_string(),
                                 circuit_id: 0,
                                 mutable: false,
+                                is_argument: false,
                                 const_: false,
                                 line_start: 0,
                                 line_end: 0,
@@ -205,6 +226,7 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                                         value: "".to_string(),
                                         circuit_id: 0,
                                         mutable: false,
+                                        is_argument: false,
                                         const_: false,
                                         line_start: 0,
                                         line_end: 0,
@@ -214,7 +236,6 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                                     variable.sub_variables.push(dbg_var);
                                     index += 1;
                                 }
-
                                 debugger.debug_data.variables.insert(var_id, variable);
                             }
                             None => {
@@ -224,13 +245,16 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                     }
                     Some(var) => {
                         let mut index = 0;
+                        var.type_ = DebugVariableType::Array;
+                        var.value = "Array".to_string();
                         for item in items {
                             let mut dbg_var = DebugVariable{
                                 name: format!("[{}]", index),
                                 type_: DebugVariableType::Array,
-                                value: "".to_string(),
+                                value: "Array".to_string(),
                                 circuit_id: 0,
                                 mutable: false,
+                                is_argument: false,
                                 const_: false,
                                 line_start: 0,
                                 line_end: 0,
@@ -247,56 +271,183 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
             ConstrainedValue::Tuple(items) => {
                 match variable {
                     None => {
-                        let mut index: usize = 0;
-                        for item in items {
-                            match item {
-                                ConstrainedValue::Address(_) => {}
-                                ConstrainedValue::Boolean(_) => {}
-                                ConstrainedValue::Char(_) => {}
-                                ConstrainedValue::Field(_) => {}
-                                ConstrainedValue::Group(_) => {}
-                                ConstrainedValue::Integer(int) => {
-                                    match debugger.debug_data.variables.get_mut(&var_id) {
-                                        Some(variable) => {
-                                            match variable.sub_variables.get_mut(index) {
-                                                Some(item) => {
-                                                    item.value = int.to_string();
-                                                }
-                                                None => {
+                        match debugger.debug_data.variables.get_mut(&var_id) {
+                            Some(variable) => {
+                                let mut variable = variable.clone();
+                                variable.type_ = DebugVariableType::Array;
+                                variable.value = "Tuple".to_string();
+                                variable.sub_variables.clear();
 
-                                                }
+                                let mut index: usize = 0;
+                                for item in items {
+                                    let mut dbg_var = DebugVariable {
+                                        name: format!("{}", index),
+                                        type_: DebugVariableType::Integer,
+                                        value: "".to_string(),
+                                        circuit_id: 0,
+                                        mutable: false,
+                                        is_argument: false,
+                                        const_: false,
+                                        line_start: 0,
+                                        line_end: 0,
+                                        sub_variables: vec![]
+                                    };
+
+
+                                    match item {
+                                        ConstrainedValue::Address(_) => {}
+                                        ConstrainedValue::Boolean(value) => {
+                                            dbg_var.type_ =  DebugVariableType::Boolean;
+                                            dbg_var.value = if value.get_value().unwrap() { "true".to_string() } else { "false".to_string()};
+                                            variable.sub_variables.push(dbg_var);
+                                        }
+                                        ConstrainedValue::Char(c) => {
+                                            dbg_var.type_ = DebugVariableType::Char;
+                                            dbg_var.value = format!("{}", c);
+                                            variable.sub_variables.push(dbg_var);
+                                        }
+                                        ConstrainedValue::Field(limbs) => {
+                                            dbg_var.type_ = DebugVariableType::Field;
+                                            dbg_var.value = format!("{}", limbs.get_value().unwrap());
+                                            variable.sub_variables.push(dbg_var);
+                                        }
+                                        ConstrainedValue::Group(g) => {
+                                            dbg_var.type_ = DebugVariableType::Group;
+                                            dbg_var.value = "Group".to_string();
+
+                                            let vec = g.get_debug_value();
+                                            if vec.len() >= 2 {
+                                                let mut str_def = String::from("");
+                                                let x = vec.get(0).unwrap_or(&str_def);
+                                                let y = vec.get(1).unwrap_or(&str_def);
+                                                dbg_var.sub_variables.push(DebugVariable{
+                                                    name: x.clone(),
+                                                    type_: DebugVariableType::Group,
+                                                    value: "".to_string(),
+                                                    circuit_id: 0,
+                                                    mutable: false,
+                                                    is_argument: false,
+                                                    const_: false,
+                                                    line_start: 0,
+                                                    line_end: 0,
+                                                    sub_variables: vec![]
+                                                });
+
+                                                dbg_var.sub_variables.push(DebugVariable{
+                                                    name: y.clone(),
+                                                    type_: DebugVariableType::Group,
+                                                    value: "".to_string(),
+                                                    circuit_id: 0,
+                                                    mutable: false,
+                                                    is_argument: false,
+                                                    const_: false,
+                                                    line_start: 0,
+                                                    line_end: 0,
+                                                    sub_variables: vec![]
+                                                });
+
+                                                variable.sub_variables.push(dbg_var);
+                                            } else {
+                                                dbg_var.type_ = DebugVariableType::Group;
+                                                dbg_var.value = format!("{}", g);
+                                                variable.sub_variables.push(dbg_var);
                                             }
+                                        }
+                                        ConstrainedValue::Integer(int) => {
+                                            dbg_var.type_ = DebugVariableType::Integer;
+                                            dbg_var.value = format!("{}", int);
+                                            variable.sub_variables.push(dbg_var);
 
+                                            /*match debugger.debug_data.variables.get_mut(&var_id) {
+                                                Some(variable) => {
+                                                    match variable.sub_variables.get_mut(index) {
+                                                        Some(item) => {
+                                                            item.value = int.to_string();
+                                                        }
+                                                        None => {
 
-                                            
-                                            /*for item in &mut variable.sub_variables {
-                                                item.value = values.get(index).unwrap().clone();
-                                                index += 1;
+                                                        }
+                                                    }
+
+                                                }
+                                                None =>{}
                                             }*/
                                         }
-                                        None =>{}
-                                    }
-                                }
-                                ConstrainedValue::Array(_items) => {
-                                    match debugger.debug_data.variables.get_mut(&var_id) {
-                                        Some(variable) => {
-                                            
-                                            let mut var_cloned = variable.clone();
-                                            for var_item in &mut var_cloned.sub_variables {
-                                                self.resolve_variable(debugger, var_id, item, Some(var_item));
-                                            }
-                                            debugger.debug_data.variables.insert(var_id, var_cloned);
-                                        }
-                                        None => {
-                                            return;
-                                        }
-                                    };
-                                }
-                                ConstrainedValue::Tuple(_) => {}
-                            }
-                            index += 1;
-                        }
+                                        ConstrainedValue::Array(arr_items) => {
+                                            /*match debugger.debug_data.variables.get_mut(&var_id) {
+                                                Some(variable) => {
+                                                    let mut var_cloned = variable.clone();
+                                                    for var_item in &mut var_cloned.sub_variables {
+                                                        self.resolve_variable(debugger, var_id, item, Some(var_item));
+                                                    }
+                                                    debugger.debug_data.variables.insert(var_id, var_cloned);
+                                                }
+                                                None => {
+                                                    return;
+                                                }
+                                            };*/
 
+                                           // let mut variable = variable.clone();
+                                           // variable.type_ = DebugVariableType::Array;
+                                            dbg_var.value = "Array".to_string();
+                                            dbg_var.sub_variables.clear();
+
+                                            let mut index = 0;
+                                            for item in arr_items {
+                                                //out.push(self.resolve(item, cs)?.into_owned());
+                                                let mut dbg_var_item = DebugVariable{
+                                                    name: format!("[{}]", index),
+                                                    type_: DebugVariableType::Array,
+                                                    value: "".to_string(),
+                                                    circuit_id: 0,
+                                                    mutable: false,
+                                                    is_argument: false,
+                                                    const_: false,
+                                                    line_start: 0,
+                                                    line_end: 0,
+                                                    sub_variables: vec![]
+                                                };
+                                                self.resolve_variable(debugger, var_id, item, Some(&mut dbg_var_item));
+                                                dbg_var.sub_variables.push(dbg_var_item);
+                                                index += 1;
+                                            }
+                                            variable.sub_variables.push(dbg_var);
+                                        }
+                                        ConstrainedValue::Tuple(tuple) => {
+                                            dbg_var.type_ = DebugVariableType::Tuple;
+                                            dbg_var.value = "Tuple".to_string();
+
+                                            let mut index_tuple: usize = 0;
+                                            for tuple_item in tuple {
+                                                let mut dbg_var_tuple = DebugVariable {
+                                                    name: format!("{}", index_tuple),
+                                                    type_: DebugVariableType::Array,
+                                                    value: "".to_string(),
+                                                    circuit_id: 0,
+                                                    mutable: false,
+                                                    is_argument: false,
+                                                    const_: false,
+                                                    line_start: 0,
+                                                    line_end: 0,
+                                                    sub_variables: vec![]
+                                                };
+                                                self.resolve_variable(debugger, var_id, tuple_item, Some(&mut dbg_var_tuple));
+                                                dbg_var.sub_variables.push(dbg_var_tuple);
+                                                index_tuple += 1;
+                                            }
+
+                                            variable.sub_variables.push(dbg_var);
+                                        }
+                                    }
+                                    index += 1;
+                                }
+
+                                debugger.debug_data.variables.insert(var_id, variable);
+                            }
+                            None => {
+                                return;
+                            }
+                        }
                     }
                     Some(_var) => {
                       

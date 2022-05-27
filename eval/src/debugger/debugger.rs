@@ -20,6 +20,7 @@ use std::mem::size_of;
 use snarkvm_debugdata::DebugVariableType::Circuit;
 //use snarkvm_fields::PrimeField;
 use std::process;
+use snarkvm_gadgets::Boolean;
 
 
 #[repr(C)]
@@ -515,6 +516,7 @@ impl Debugger {
                                         value: "".to_string(),
                                         circuit_id: 0,
                                         mutable: false,
+                                        is_argument: false,
                                         const_: false,
                                         line_start: 0,
                                         line_end: 0,
@@ -541,6 +543,7 @@ impl Debugger {
                                 value: "".to_string(),
                                 circuit_id: 0,
                                 mutable: false,
+                                is_argument: false,
                                 const_: false,
                                 line_start: 0,
                                 line_end: 0,
@@ -721,7 +724,7 @@ impl Debugger {
     }
 
 
-    unsafe fn generate_variables(add_variables: &lib::Symbol<AddVariables>, debug_event: &StrackEvent, variables: Option<&Vec<DebugVariable>>, func: &DebugFunction, ptr_variables: *mut VariableExp, count: u32, variables_reference: u32) -> u32 {
+    unsafe fn generate_variables(is_argument: bool, add_variables: &lib::Symbol<AddVariables>, debug_event: &StrackEvent, variables: Option<&Vec<DebugVariable>>, func: &DebugFunction, ptr_variables: *mut VariableExp, count: u32, variables_reference: u32) -> u32 {
         let mut index = 0;
         let mut cur_variables_reference= variables_reference;
         let arr_variables = from_raw_parts_mut(ptr_variables as *mut VariableExp, count as usize);
@@ -733,6 +736,9 @@ impl Debugger {
                         Some(variable) =>{
                             //let layout = Layout::new::<VariableExp>();
                             //let variable = alloc(layout)  as *mut VariableExp;
+                            if is_argument != variable.is_argument {
+                                continue;
+                            }
 
                             let type_ = "u32".to_string();
                             arr_variables[index].name = libc::malloc(size_of::<c_char>() * (variable.name.len() + 1)) as *mut c_char;
@@ -756,7 +762,7 @@ impl Debugger {
                                 arr_variables[index].variables_reference = cur_variables_reference;
                                 let sub_var_count = variable.sub_variables.len();
                                 let ptr_sub_variables = libc::malloc(size_of::<VariableExp>() * sub_var_count)  as *mut VariableExp;
-                                cur_variables_reference = Debugger::generate_variables(add_variables, debug_event, Some(&variable.sub_variables), func, ptr_sub_variables, sub_var_count as u32, arr_variables[index].variables_reference);
+                                cur_variables_reference = Debugger::generate_variables(is_argument, add_variables, debug_event, Some(&variable.sub_variables), func, ptr_sub_variables, sub_var_count as u32, arr_variables[index].variables_reference);
                             }
 
                             index += 1;
@@ -764,7 +770,7 @@ impl Debugger {
                         None => {}
                     }
                 }
-                if index < count as usize {
+                if index < count as usize && !is_argument {
                     let str_self = "self".to_string();
                     let type_ = "u32".to_string();
                     let value = "Circuit".to_string();
@@ -788,7 +794,7 @@ impl Debugger {
                                 arr_variables[index].variables_reference = cur_variables_reference;
                                 let sub_var_count = variable.sub_variables.len();
                                 let ptr_sub_variables = libc::malloc(size_of::<VariableExp>() * sub_var_count)  as *mut VariableExp;
-                                cur_variables_reference = Debugger::generate_variables(add_variables, debug_event, Some(&variable.sub_variables), func, ptr_sub_variables, sub_var_count as u32, arr_variables[index].variables_reference);
+                                cur_variables_reference = Debugger::generate_variables(is_argument, add_variables, debug_event, Some(&variable.sub_variables), func, ptr_sub_variables, sub_var_count as u32, arr_variables[index].variables_reference);
                             }
 
                         }
@@ -802,6 +808,7 @@ impl Debugger {
 
             Some(variables) => {
                 for variable in  variables {
+
                     let type_ = "u32".to_string();
                     arr_variables[index].name = libc::malloc(size_of::<c_char>() * (variable.name.len() + 1)) as *mut c_char;
                     arr_variables[index].type_ = libc::malloc(size_of::<c_char>() * (type_.len() + 1)) as *mut c_char;
@@ -823,7 +830,7 @@ impl Debugger {
                         arr_variables[index].variables_reference = cur_variables_reference;
                         let sub_var_count = variable.sub_variables.len();
                         let ptr_sub_variables = libc::malloc(size_of::<VariableExp>() * sub_var_count)  as *mut VariableExp;
-                        cur_variables_reference = Debugger::generate_variables(add_variables, debug_event, Some(&variable.sub_variables), func, ptr_sub_variables, sub_var_count as u32, arr_variables[index].variables_reference);
+                        cur_variables_reference = Debugger::generate_variables(is_argument, add_variables, debug_event, Some(&variable.sub_variables), func, ptr_sub_variables, sub_var_count as u32, arr_variables[index].variables_reference);
                     }
                     index += 1;
                 }
@@ -879,7 +886,7 @@ impl Debugger {
         //let main_input = input.main.clone();
         let file_path = input.debug_data.clone();
         let mut cur_variables_reference_id = self.cur_variables_reference_id;
-        let mut frame_id = self.cur_stack_frame_id;
+        let mut stack_frame_id = self.cur_stack_frame_id;
         let debug_port = self.debug_data.debug_port;
 
         thread::spawn(move || {
@@ -965,39 +972,60 @@ impl Debugger {
 
                     match debug_event.event {
                         DebugEvent::Stack => {
+                            let mut frame_id = stack_frame_id;
                             let mut stack_index = 0;
                             let ptr_stack_frame = libc::malloc(size_of::<StackFrameExp>() * debug_event.debug_data.stack.len() ) as *mut StackFrameExp;
                             let arr_stack_frame = from_raw_parts_mut(ptr_stack_frame as *mut StackFrameExp, debug_event.debug_data.stack.len());
                             for func in debug_event.debug_data.stack.iter() {
-                                let mut variables_count = func.variables.len();
+                                let mut variables_count = func.get_variables_count(false, &debug_event.debug_data.variables);
+                                let mut arguments_count = func.get_variables_count(true, &debug_event.debug_data.variables);
                                 if func.self_circuit_id != 0 {
                                     variables_count += 1; // need for self
                                 }
 
-                                let ptr_variables = libc::malloc(size_of::<VariableExp>() * variables_count)  as *mut VariableExp;
-                                let variables_reference_id = Debugger::generate_variables(&add_variables, &debug_event, None, func, ptr_variables, variables_count as u32, cur_variables_reference_id);
+                                let ptr_variables = libc::malloc(size_of::<VariableExp>() * variables_count as usize)  as *mut VariableExp;
+                                let variables_reference_id = Debugger::generate_variables(false, &add_variables, &debug_event, None, func, ptr_variables, variables_count, cur_variables_reference_id);
 
-                                let ptr_scope = libc::malloc(size_of::<ScopeExp>() ) as *mut ScopeExp;
+                                let scope_count = if arguments_count > 0 {2} else {1};
+                                let ptr_scope = libc::malloc(size_of::<ScopeExp>() *  scope_count) as *mut ScopeExp;
+                                let ptr_scopes = from_raw_parts_mut(ptr_scope as *mut ScopeExp, scope_count as usize);
+
                                 let name = "Variables".to_string();
-                                let presentation_hint =  "Variables".to_string();
+                                let presentation_hint =  "locals".to_string();
 
-                                (*ptr_scope).name = libc::malloc(size_of::<c_char>() * name.len()) as *mut c_char;
-                                (*ptr_scope).presentation_hint = libc::malloc(size_of::<c_char>() * presentation_hint.len()) as *mut c_char;
+                                (ptr_scopes[0]).name = libc::malloc(size_of::<c_char>() * name.len()) as *mut c_char;
+                                (ptr_scopes[0]).presentation_hint = libc::malloc(size_of::<c_char>() * presentation_hint.len()) as *mut c_char;
 
                                 let name = CString::new(name).unwrap().into_raw();
                                 let presentation_hint =  CString::new(presentation_hint).unwrap().into_raw();
 
-                                strcpy((*ptr_scope).name, name);
-                                strcpy((*ptr_scope).presentation_hint, presentation_hint);
-                                (*ptr_scope).variables_reference = cur_variables_reference_id;
-                                cur_variables_reference_id = variables_reference_id;
+                                strcpy((ptr_scopes[0]).name, name);
+                                strcpy((ptr_scopes[0]).presentation_hint, presentation_hint);
+                                (ptr_scopes[0]).variables_reference = cur_variables_reference_id;
+                                cur_variables_reference_id = variables_reference_id + 1;
 
+                                if arguments_count > 0 {
+                                    let ptr_arguments = libc::malloc(size_of::<VariableExp>() * arguments_count as usize)  as *mut VariableExp;
+                                    let variables_reference_id = Debugger::generate_variables(true, &add_variables, &debug_event, None, func, ptr_arguments, arguments_count, cur_variables_reference_id);
+
+                                    let name = "Arguments".to_string();
+                                    let presentation_hint =  "arguments".to_string();
+
+                                    (ptr_scopes[1]).name = libc::malloc(size_of::<c_char>() * name.len()) as *mut c_char;
+                                    (ptr_scopes[1]).presentation_hint = libc::malloc(size_of::<c_char>() * presentation_hint.len()) as *mut c_char;
+
+                                    let name = CString::new(name).unwrap().into_raw();
+                                    let presentation_hint =  CString::new(presentation_hint).unwrap().into_raw();
+
+                                    strcpy((ptr_scopes[1]).name, name);
+                                    strcpy((ptr_scopes[1]).presentation_hint, presentation_hint);
+                                    (ptr_scopes[1]).variables_reference = cur_variables_reference_id;
+                                    cur_variables_reference_id = variables_reference_id + 1;
+                                }
 
                                 let ptr_scopes = libc::malloc(size_of::<ScopesMapExp>() ) as *mut ScopesMapExp;
                                 (*ptr_scopes).scopes = ptr_scope;
-                                (*ptr_scopes).count = 1;
-
-
+                                (*ptr_scopes).count = scope_count as i32;
 
                                 let str_file_path = CString::new(func.file_path.clone()).unwrap().into_raw();
                                 let str_func_name = CString::new(func.name.clone()).unwrap().into_raw();

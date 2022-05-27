@@ -1,7 +1,7 @@
 use std::fmt;
 use indexmap::IndexMap;
 use serde::Serialize;
-use crate::{DebugInstruction};
+use crate::{DebugInstruction, DebugVariable};
 
 #[derive(Clone, Serialize)]
 pub struct DebugFunction {
@@ -44,6 +44,22 @@ impl DebugFunction {
                 self.variables.insert(id, variable);
             }
         }*/
+    }
+
+    pub fn get_variables_count(&self, is_argument: bool, variables: &IndexMap<u32, DebugVariable>) -> u32 {
+        let mut count: u32 = 0;
+        for val in self.variables.iter() {
+            let item = variables.get(val);
+            match item {
+                Some(variable) => {
+                    if is_argument == variable.is_argument {
+                        count += 1;
+                    }
+                }
+                None => {}
+            }
+        }
+        count
     }
 }
 

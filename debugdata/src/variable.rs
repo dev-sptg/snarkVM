@@ -4,12 +4,14 @@ use serde::Serialize;
 #[derive(Clone, Serialize)]
 pub enum DebugVariableType {
     Group,
+    Char,
     Integer,
     Circuit,
     Array,
     Boolean,
     Field,
-    String
+    String,
+    Tuple
 }
 
 #[derive(Clone, Serialize)]
@@ -45,6 +47,7 @@ pub struct DebugVariable {
     pub value: String,
     pub circuit_id: u32,
     pub mutable: bool,
+    pub is_argument: bool,
     pub const_: bool, // only function arguments, const var definitions NOT included
     pub line_start: u32,
     pub line_end: u32,

@@ -3,6 +3,7 @@ use serde::Serialize;
 
 #[derive(Clone, Serialize)]
 pub enum DebugVariableType {
+    Empty,
     Group,
     Char,
     Integer,
@@ -55,7 +56,69 @@ pub struct DebugVariable {
 
 }
 
+impl DebugVariable {
+    pub fn new() -> Self {
+        Self {
+            name: "".to_string(),
+            type_: DebugVariableType::Empty,
+            value: "".to_string(),
+            circuit_id: 0,
+            mutable: false,
+            is_argument: false,
+            const_: false,
+            line_start: 0,
+            line_end: 0,
+            sub_variables: vec![]
+        }
+    }
 
+    pub fn new_some_variable(type_: DebugVariableType, name: String, value: String, line_start: u32, line_end: u32) -> Self {
+        Self {
+            name: name,
+            type_: type_,
+            value: value,
+            circuit_id: 0,
+            mutable: false,
+            is_argument: false,
+            const_: false,
+            line_start: line_start,
+            line_end: line_end,
+            sub_variables: vec![]
+        }
+    }
+
+    /*pub fn new_array(name: String, value: String, line_start: u32, line_end: u32) -> Self {
+        Self {
+            name: name,
+            type_: DebugVariableType::Array,
+            value: value,
+            circuit_id: 0,
+            mutable: false,
+            is_argument: false,
+            const_: false,
+            line_start: line_start,
+            line_end: line_end,
+            sub_variables: vec![]
+        }
+    }*/
+
+    pub fn new_circuit(name: String, value: String, circuit_id: u32, line_start: u32, line_end: u32) -> Self {
+        Self {
+            name: name,
+            type_: DebugVariableType::Circuit,
+            value: value,
+            circuit_id: circuit_id,
+            mutable: false,
+            is_argument: false,
+            const_: false,
+            line_start: line_start,
+            line_end: line_end,
+            sub_variables: vec![]
+        }
+    }
+
+
+}
 
 impl<'a> fmt::Display for DebugVariable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

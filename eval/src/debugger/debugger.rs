@@ -21,6 +21,7 @@ use snarkvm_debugdata::DebugVariableType::Circuit;
 //use snarkvm_fields::PrimeField;
 use std::process;
 use snarkvm_gadgets::Boolean;
+use std::ptr;
 
 
 #[repr(C)]
@@ -66,7 +67,7 @@ struct StackExp {
 
 extern "C" {
     //fn printf(fmt: *const c_char, ...) -> c_int;
-    //fn strlen(arr: *const c_char) -> usize;
+    fn strlen(arr: *const c_char) -> usize;
     fn strcpy(dst: *mut c_char, src: *const c_char) -> *mut c_char;
 }
 
@@ -118,7 +119,7 @@ extern "C" fn callback(target: *mut RustObject, src_path: *mut  c_char, _sz: i32
 }
 
 extern "C" fn next_step(target: *mut RustObject) {
-    //println!("Rust:next_step : I'm called from C");
+    println!("Rust:next_step : I'm called from C");
     let robject = unsafe {
         assert!(!target.is_null());
         &mut *target
@@ -131,7 +132,7 @@ extern "C" fn next_step(target: *mut RustObject) {
 }
 
 extern "C" fn step_in(target: *mut Debugger) {
-    //println!("Rust:step_in : I'm called from C");
+    println!("Rust:step_in : I'm called from C");
     let debugger = unsafe {
         assert!(!target.is_null());
         &mut *target
@@ -146,7 +147,7 @@ extern "C" fn step_in(target: *mut Debugger) {
 }
 
 extern "C" fn step_out(target: *mut Debugger) {
-    //println!("Rust:step_in : I'm called from C");
+    println!("Rust:step_in : I'm called from C");
     let debugger = unsafe {
         assert!(!target.is_null());
         &mut *target
@@ -161,7 +162,7 @@ extern "C" fn step_out(target: *mut Debugger) {
 }
 
 extern "C" fn get_stack_callback(target: *mut Debugger) {
-    //println!("Rust:get_stack_callback : I'm called from C");
+    println!("Rust:get_stack_callback : I'm called from C");
     let debugger = unsafe {
         assert!(!target.is_null());
         &mut *target
@@ -332,13 +333,18 @@ impl Debugger {
     }
 
     pub fn wait_for_next_step(&mut self) {
+        println!("Rust: wait_for_next_step start");
         if !self.is_debug_mode {
             return;
         }
 
         let (lock, cvar) = &*self.pair;
         let started = lock.lock().unwrap();
+
+        println!("Rust: wait_for_next_step wait");
         cvar.wait(started);
+
+        println!("Rust: wait_for_next_step end");
     }
 
     pub fn update_position(&mut self, current_line: u32, line_end: u32) {
@@ -391,6 +397,7 @@ impl Debugger {
     }
 
     pub fn evaluate_instruction(&mut self, function_index: u32,  instruction_index: u32 ) {
+        println!("Rust: evaluate_instruction start");
         if !self.is_debug_mode {
             return;
         }
@@ -406,6 +413,7 @@ impl Debugger {
                         self.update_position(line_start, line_end);
 
                         self.send_next_step_response();
+                        println!("Rust: evaluate_instruction - wait_for_next_step 3");
                         self.wait_for_next_step();
 
                         self.step_out();
@@ -416,6 +424,7 @@ impl Debugger {
                 }
             };
 
+            println!("Rust: evaluate_instruction 1");
             self.is_step_into = false;
             self.is_call_instruction = false;
             if instruction_index == std::u32::MAX {
@@ -446,6 +455,8 @@ impl Debugger {
 
                                         self.update_position(instruction_line_start, instruction_line_end);
                                         self.send_breakpoint_hit_response();
+
+                                        println!("Rust: evaluate_instruction - wait_for_next_step 1");
                                         self.wait_for_next_step();
                                         self.step_out();
                                     }
@@ -456,6 +467,7 @@ impl Debugger {
                             } else {
                                 self.update_position(instruction_line_start, instruction_line_end);
                                 self.send_next_step_response();
+                                println!("Rust: evaluate_instruction - wait_for_next_step 2");
                                 self.wait_for_next_step();
                                 self.step_out();
                             }
@@ -469,6 +481,8 @@ impl Debugger {
                 }
             }
         }
+
+        println!("Rust: evaluate_instruction end");
     }
 
     pub fn resolve_variable(&mut self, var_id: u32, value: &Value, variable: Option< &mut DebugVariable>) {
@@ -693,7 +707,7 @@ impl Debugger {
 
        let stack = StrackEvent {
             event: DebugEvent::NextStep,
-            debug_data: self.debug_data.clone()
+            debug_data: DebugData::new(false,Some(0)),
         };
         self.tx.send(stack).unwrap();
     }
@@ -707,18 +721,18 @@ impl Debugger {
 
         let stack = StrackEvent {
             event: DebugEvent::BreakpointHit,
-            debug_data: self.debug_data.clone()
+            debug_data: DebugData::new(false,Some(0)),
         };
         self.tx.send(stack).unwrap();
     }
 
     unsafe fn free_variables(ptr_variables: *mut VariableExp, count: u32) {
         let arr_variables = from_raw_parts_mut(ptr_variables as *mut VariableExp, count as usize);
-        /*for variable in arr_variables.iter() {
-            libc::free(variable.name as *mut c_void);
-            libc::free(variable.type_ as *mut c_void);
-            libc::free(variable.value as *mut c_void);
-        }*/
+        for i in 0..count as usize {
+            libc::free(arr_variables[i].name as *mut c_void);
+            libc::free(arr_variables[i].type_ as *mut c_void);
+            libc::free(arr_variables[i].value as *mut c_void);
+        }
 
         libc::free(ptr_variables  as *mut c_void);
     }
@@ -734,23 +748,18 @@ impl Debugger {
                     let item = debug_event.debug_data.variables.get(val);
                     match item {
                         Some(variable) =>{
-                            //let layout = Layout::new::<VariableExp>();
-                            //let variable = alloc(layout)  as *mut VariableExp;
                             if is_argument != variable.is_argument {
                                 continue;
                             }
 
                             let type_ = "u32".to_string();
-                            arr_variables[index].name = libc::malloc(size_of::<c_char>() * (variable.name.len() + 1)) as *mut c_char;
-                            arr_variables[index].type_ = libc::malloc(size_of::<c_char>() * (type_.len() + 1)) as *mut c_char;
-                            arr_variables[index].value = libc::malloc(size_of::<c_char>() * (variable.value.len() + 1)) as *mut c_char;
-
                             let str_name = CString::new(variable.name.clone()).unwrap().into_raw();
                             let str_value = CString::new(variable.value.clone()).unwrap().into_raw();
                             let str_type = CString::new(type_).unwrap().into_raw();
-                            //strcpy(arr_variables[index].name, str_name);
-                            //strcpy(arr_variables[index].type_, str_type);
-                            //strcpy(arr_variables[index].value, str_value);
+
+                            arr_variables[index].name = libc::malloc(size_of::<c_char>() * (strlen(str_name) + 1)) as *mut c_char;
+                            arr_variables[index].type_ = libc::malloc(size_of::<c_char>() * (strlen(str_type) + 1)) as *mut c_char;
+                            arr_variables[index].value = libc::malloc(size_of::<c_char>() * (strlen(str_value) + 1)) as *mut c_char;
 
                             strcpy(arr_variables[index].name, str_name);
                             strcpy(arr_variables[index].type_, str_type);
@@ -775,13 +784,13 @@ impl Debugger {
                     let type_ = "u32".to_string();
                     let value = "Circuit".to_string();
 
-                    arr_variables[index].name = libc::malloc(size_of::<c_char>() * (str_self.len() + 1)) as *mut c_char;
-                    arr_variables[index].type_ = libc::malloc(size_of::<c_char>() * (type_.len() + 1)) as *mut c_char;
-                    arr_variables[index].value = libc::malloc(size_of::<c_char>() * (value.len() + 1)) as *mut c_char;
-
                     let str_name = CString::new(str_self.clone()).unwrap().into_raw();
                     let str_value = CString::new(value.clone()).unwrap().into_raw();
                     let str_type = CString::new(type_).unwrap().into_raw();
+
+                    arr_variables[index].name = libc::malloc(size_of::<c_char>() * (strlen(str_name) + 1)) as *mut c_char;
+                    arr_variables[index].type_ = libc::malloc(size_of::<c_char>() * (strlen(str_type) + 1)) as *mut c_char;
+                    arr_variables[index].value = libc::malloc(size_of::<c_char>() * (strlen(str_value) + 1)) as *mut c_char;
 
                     strcpy(arr_variables[index].name, str_name);
                     strcpy(arr_variables[index].type_, str_type);
@@ -876,14 +885,9 @@ impl Debugger {
             set_breakpoint_lines(400, instructions_mem.as_ptr(), instructions_mem.len() as u32);
         }
 
-
-        //let start = self.start_signal.clone();
         let pair2 = Arc::clone(&self.pair);
-        //let (_lock, cvar) = &*pair2;
         let receiver = self.rx.clone();
 
-        //let registers = input.registers.clone();
-        //let main_input = input.main.clone();
         let file_path = input.debug_data.clone();
         let mut cur_variables_reference_id = self.cur_variables_reference_id;
         let mut stack_frame_id = self.cur_stack_frame_id;
@@ -950,28 +954,27 @@ impl Debugger {
 
                 println!("Leo: run debugger event loop");
                 loop {
-                    //
+
+                    println!("Leo: Wait for event");
                     let debug_event = match receiver.lock() {
                         Ok(res) => {
                             match res.recv() {
-                                Ok(rc) => {
-                                    rc
-                                }
-                                Err(_e) => {
-                                    return;
+                                Ok(rc) => rc,
+                                Err(e) =>{
+                                    println!("Leo: event loop error: StackEvent: {}", e);
+                                    return
                                 }
                             }
                         }
-                        Err(_e) => {
-                            return;
-                        }
+                        Err(e) => {
+                            println!("Leo: event loop error: {}", e);
+                            return
+                        },
                     };
-
-                    //let debug_event = receiver.lock().unwrap().recv().unwrap();
-                    //println!("receiver - debug_event.event_id = {}", debug_event.event_id);
 
                     match debug_event.event {
                         DebugEvent::Stack => {
+                            //println!("Leo: DebugEvent::Stack");
                             let mut frame_id = stack_frame_id;
                             let mut stack_index = 0;
                             let ptr_stack_frame = libc::malloc(size_of::<StackFrameExp>() * debug_event.debug_data.stack.len() ) as *mut StackFrameExp;
@@ -990,14 +993,11 @@ impl Debugger {
                                 let ptr_scope = libc::malloc(size_of::<ScopeExp>() *  scope_count) as *mut ScopeExp;
                                 let ptr_scopes = from_raw_parts_mut(ptr_scope as *mut ScopeExp, scope_count as usize);
 
-                                let name = "Variables".to_string();
-                                let presentation_hint =  "locals".to_string();
+                                let name = CString::new("Variables".to_string()).unwrap().into_raw();
+                                let presentation_hint =  CString::new("locals".to_string()).unwrap().into_raw();
 
-                                (ptr_scopes[0]).name = libc::malloc(size_of::<c_char>() * name.len()) as *mut c_char;
-                                (ptr_scopes[0]).presentation_hint = libc::malloc(size_of::<c_char>() * presentation_hint.len()) as *mut c_char;
-
-                                let name = CString::new(name).unwrap().into_raw();
-                                let presentation_hint =  CString::new(presentation_hint).unwrap().into_raw();
+                                (ptr_scopes[0]).name = libc::malloc(size_of::<c_char>() * (strlen(name) + 1)) as *mut c_char;
+                                (ptr_scopes[0]).presentation_hint = libc::malloc(size_of::<c_char>() * (strlen(presentation_hint) + 1)) as *mut c_char;
 
                                 strcpy((ptr_scopes[0]).name, name);
                                 strcpy((ptr_scopes[0]).presentation_hint, presentation_hint);
@@ -1008,14 +1008,11 @@ impl Debugger {
                                     let ptr_arguments = libc::malloc(size_of::<VariableExp>() * arguments_count as usize)  as *mut VariableExp;
                                     let variables_reference_id = Debugger::generate_variables(true, &add_variables, &debug_event, None, func, ptr_arguments, arguments_count, cur_variables_reference_id);
 
-                                    let name = "Arguments".to_string();
-                                    let presentation_hint =  "arguments".to_string();
+                                    let name = CString::new("Arguments".to_string()).unwrap().into_raw();
+                                    let presentation_hint =  CString::new("arguments".to_string()).unwrap().into_raw();
 
-                                    (ptr_scopes[1]).name = libc::malloc(size_of::<c_char>() * name.len()) as *mut c_char;
-                                    (ptr_scopes[1]).presentation_hint = libc::malloc(size_of::<c_char>() * presentation_hint.len()) as *mut c_char;
-
-                                    let name = CString::new(name).unwrap().into_raw();
-                                    let presentation_hint =  CString::new(presentation_hint).unwrap().into_raw();
+                                    (ptr_scopes[1]).name = libc::malloc(size_of::<c_char>() * (strlen(name) + 1)) as *mut c_char;
+                                    (ptr_scopes[1]).presentation_hint = libc::malloc(size_of::<c_char>() * (strlen(presentation_hint) + 1)) as *mut c_char;
 
                                     strcpy((ptr_scopes[1]).name, name);
                                     strcpy((ptr_scopes[1]).presentation_hint, presentation_hint);
@@ -1029,8 +1026,8 @@ impl Debugger {
 
                                 let str_file_path = CString::new(func.file_path.clone()).unwrap().into_raw();
                                 let str_func_name = CString::new(func.name.clone()).unwrap().into_raw();
-                                arr_stack_frame[stack_index].name = libc::malloc(size_of::<c_char>() * func.name.len()) as *mut c_char;
-                                arr_stack_frame[stack_index].file_path = libc::malloc(size_of::<c_char>() * func.file_path.len()) as *mut c_char;
+                                arr_stack_frame[stack_index].name = libc::malloc(size_of::<c_char>() * (strlen(str_func_name) + 1)) as *mut c_char;
+                                arr_stack_frame[stack_index].file_path = libc::malloc(size_of::<c_char>() * (strlen(str_file_path) + 1)) as *mut c_char;
 
                                 arr_stack_frame[stack_index].id = frame_id as i32;
                                 arr_stack_frame[stack_index].scopes_map = ptr_scopes;
@@ -1071,6 +1068,7 @@ impl Debugger {
                             libc::free(stack.stack as *mut c_void);
                         }
                         DebugEvent::NextStep => {
+                            println!("Leo: DebugEvent::NextStep");
                             next_step_response();
                         }
                         DebugEvent::BreakpointHit => {

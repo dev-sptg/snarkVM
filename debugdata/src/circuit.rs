@@ -1,11 +1,12 @@
 use std::fmt;
 use serde::Serialize;
+use crate::DebugVariable;
 
 
 #[derive(Clone, Serialize)]
 pub struct DebugCircuit {
     pub name: String,
-    pub members: Vec<u32>,
+    pub members:Vec<DebugVariable>,
     pub functions: Vec<u32>,
     pub line_start: u32,
     pub line_end: u32,

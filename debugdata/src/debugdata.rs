@@ -22,7 +22,7 @@ pub struct DebugData{
     pub call_dept: u32,
     pub debug: bool,
     pub debug_port: u32,
-
+    pub debug_variable: DebugVariable,
     pub functions: IndexMap<u32, DebugFunction>,
     pub variables: IndexMap<u32, DebugVariable>,
     pub circuits: IndexMap<u32, DebugCircuit>,
@@ -42,10 +42,11 @@ impl DebugData {
             call_dept: 0,
             debug: debug,
             debug_port: port,
+            debug_variable: DebugVariable::new(),
             functions: IndexMap::new(),
             variables: IndexMap::new(),
             circuits: IndexMap::new(),
-            last_circuit_id: 0
+            last_circuit_id: std::u32::MAX
         }
     }
 

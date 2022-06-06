@@ -13,7 +13,6 @@
 
 // You should have received a copy of the GNU General Public License
 // along with the snarkVM library. If not, see <https://www.gnu.org/licenses/>.
-
 use crate::{Address, Char, FieldType, GroupType, Integer};
 
 use snarkvm_fields::PrimeField;
@@ -23,7 +22,7 @@ use snarkvm_r1cs::{ConstraintSystem, SynthesisError};
 use std::fmt;
 use std::mem::discriminant;
 use crate::debugger::Debugger;
-use snarkvm_debugdata::{DebugVariable, DebugVariableType};
+use snarkvm_debugdata::{DebugCircuit, DebugVariable, DebugVariableType};
 use crate::edwards_bls12::EdwardsGroupType;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,7 +43,6 @@ pub enum ConstrainedValue<F: PrimeField, G: GroupType<F>> {
 }
 
 impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
-
     fn resolve_variable(&mut self, debugger: &mut Debugger, var_id: u32, value: &Self, variable: Option<&mut DebugVariable>) {
         if !debugger.is_debug_mode {
             return;
@@ -215,23 +213,33 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                                 let mut variable = variable.clone();
                                 variable.type_ = DebugVariableType::Array;
                                 variable.value = "Array".to_string();
+                                //variable.sub_variables.clear();
+
+                                let mut sub_variables = variable.sub_variables.clone();
                                 variable.sub_variables.clear();
 
-                                let mut index = 0;
+                                if sub_variables.len() > 0 && items.len() != sub_variables.len() {
+                                    return;
+                                }
+
+                                let mut index: usize = 0;
                                 for item in items {
-                                    //out.push(self.resolve(item, cs)?.into_owned());
-                                    let mut dbg_var = DebugVariable{
-                                        name: format!("[{}]", index),
-                                        type_: DebugVariableType::Array,
-                                        value: "".to_string(),
-                                        circuit_id: 0,
-                                        mutable: false,
-                                        is_argument: false,
-                                        const_: false,
-                                        line_start: 0,
-                                        line_end: 0,
-                                        sub_variables: vec![]
+
+                                    let mut dbg_var = if sub_variables.len() > 0 {
+                                        let mut sub_var = sub_variables[index].clone();
+                                        /*if sub_var.sub_variables.len() == 0 {
+                                            let circuit = debugger.debug_data.circuits.get(&sub_var.circuit_id).unwrap();
+                                            for member in &circuit.members {
+                                                sub_var.sub_variables.push(member.clone());
+                                            }
+                                        }*/
+                                        sub_var.name = format!("[{}]", index);
+                                        sub_var
+                                    } else {
+                                        let mut dbg_var = DebugVariable::new_some_variable(DebugVariableType::Array, format!("[{}]", index), "".to_string(), 0, 0);
+                                        dbg_var
                                     };
+
                                     self.resolve_variable(debugger, var_id, item, Some(&mut dbg_var));
                                     variable.sub_variables.push(dbg_var);
                                     index += 1;
@@ -244,23 +252,35 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                         };
                     }
                     Some(var) => {
-                        let mut index = 0;
+
+                        //let mut variable = variable.clone();
                         var.type_ = DebugVariableType::Array;
                         var.value = "Array".to_string();
-                        for item in items {
-                            let mut dbg_var = DebugVariable{
-                                name: format!("[{}]", index),
-                                type_: DebugVariableType::Array,
-                                value: "Array".to_string(),
-                                circuit_id: 0,
-                                mutable: false,
-                                is_argument: false,
-                                const_: false,
-                                line_start: 0,
-                                line_end: 0,
-                                sub_variables: vec![]
-                            };
+                        //variable.sub_variables.clear();
 
+                        let mut sub_variables = var.sub_variables.clone();
+                        var.sub_variables.clear();
+
+                        if sub_variables.len() > 0 && items.len() != sub_variables.len() {
+                            return;
+                        }
+
+                        let mut index: usize = 0;
+                        for item in items {
+                            let mut dbg_var = if sub_variables.len() > 0 {
+                                let mut sub_var = sub_variables[index].clone();
+                                /*if sub_var.sub_variables.len() == 0 {
+                                    let circuit = debugger.debug_data.circuits.get(&sub_var.circuit_id).unwrap();
+                                    for member in &circuit.members {
+                                        sub_var.sub_variables.push(member.clone());
+                                    }
+                                }*/
+                                sub_var.name = format!("[{}]", index);
+                                sub_var
+                            } else {
+                                let mut dbg_var = DebugVariable::new_some_variable(DebugVariableType::Array, format!("[{}]", index), "".to_string(), 0, 0);
+                                dbg_var
+                            };
                             self.resolve_variable(debugger, var_id, item, Some(&mut dbg_var));
                             var.sub_variables.push(dbg_var);
                             index += 1;
@@ -273,14 +293,28 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                     None => {
                         match debugger.debug_data.variables.get_mut(&var_id) {
                             Some(variable) => {
+                                //let mut is_new_sub_var = false;
                                 let mut variable = variable.clone();
-                                variable.type_ = DebugVariableType::Array;
-                                variable.value = "Tuple".to_string();
-                                variable.sub_variables.clear();
 
+
+                                /*match variable.type_ {
+                                    DebugVariableType::Circuit => {
+                                        variable.type_ = DebugVariableType::Circuit;
+                                    }
+                                    _=> {
+                                        //variable.type_ = DebugVariableType::Circuit;
+                                        //variable.value = "Tuple".to_string();
+                                        is_new_sub_var = true;
+                                        variable.sub_variables.clear();
+                                    }
+                                }*/
+
+                                let mut sub_variables = variable.sub_variables.clone();
+                                variable.sub_variables.clear();
                                 let mut index: usize = 0;
                                 for item in items {
-                                    let mut dbg_var = DebugVariable {
+                                    let mut dbg_var: DebugVariable;
+                                    dbg_var = DebugVariable {
                                         name: format!("{}", index),
                                         type_: DebugVariableType::Integer,
                                         value: "".to_string(),
@@ -294,154 +328,21 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                                     };
 
 
-                                    match item {
-                                        ConstrainedValue::Address(_) => {}
-                                        ConstrainedValue::Boolean(value) => {
-                                            dbg_var.type_ =  DebugVariableType::Boolean;
-                                            dbg_var.value = if value.get_value().unwrap() { "true".to_string() } else { "false".to_string()};
-                                            variable.sub_variables.push(dbg_var);
+                                    match sub_variables.get_mut(index) {
+                                        Some(item) => {
+                                            dbg_var = item.clone();
                                         }
-                                        ConstrainedValue::Char(c) => {
-                                            dbg_var.type_ = DebugVariableType::Char;
-                                            dbg_var.value = format!("{}", c);
-                                            variable.sub_variables.push(dbg_var);
-                                        }
-                                        ConstrainedValue::Field(limbs) => {
-                                            dbg_var.type_ = DebugVariableType::Field;
-                                            dbg_var.value = format!("{}", limbs.get_value().unwrap());
-                                            variable.sub_variables.push(dbg_var);
-                                        }
-                                        ConstrainedValue::Group(g) => {
-                                            dbg_var.type_ = DebugVariableType::Group;
-                                            dbg_var.value = "Group".to_string();
-
-                                            let vec = g.get_debug_value();
-                                            if vec.len() >= 2 {
-                                                let mut str_def = String::from("");
-                                                let x = vec.get(0).unwrap_or(&str_def);
-                                                let y = vec.get(1).unwrap_or(&str_def);
-                                                dbg_var.sub_variables.push(DebugVariable{
-                                                    name: x.clone(),
-                                                    type_: DebugVariableType::Group,
-                                                    value: "".to_string(),
-                                                    circuit_id: 0,
-                                                    mutable: false,
-                                                    is_argument: false,
-                                                    const_: false,
-                                                    line_start: 0,
-                                                    line_end: 0,
-                                                    sub_variables: vec![]
-                                                });
-
-                                                dbg_var.sub_variables.push(DebugVariable{
-                                                    name: y.clone(),
-                                                    type_: DebugVariableType::Group,
-                                                    value: "".to_string(),
-                                                    circuit_id: 0,
-                                                    mutable: false,
-                                                    is_argument: false,
-                                                    const_: false,
-                                                    line_start: 0,
-                                                    line_end: 0,
-                                                    sub_variables: vec![]
-                                                });
-
-                                                variable.sub_variables.push(dbg_var);
-                                            } else {
-                                                dbg_var.type_ = DebugVariableType::Group;
-                                                dbg_var.value = format!("{}", g);
-                                                variable.sub_variables.push(dbg_var);
-                                            }
-                                        }
-                                        ConstrainedValue::Integer(int) => {
-                                            dbg_var.type_ = DebugVariableType::Integer;
-                                            dbg_var.value = format!("{}", int);
-                                            variable.sub_variables.push(dbg_var);
-
-                                            /*match debugger.debug_data.variables.get_mut(&var_id) {
-                                                Some(variable) => {
-                                                    match variable.sub_variables.get_mut(index) {
-                                                        Some(item) => {
-                                                            item.value = int.to_string();
-                                                        }
-                                                        None => {
-
-                                                        }
-                                                    }
-
-                                                }
-                                                None =>{}
-                                            }*/
-                                        }
-                                        ConstrainedValue::Array(arr_items) => {
-                                            /*match debugger.debug_data.variables.get_mut(&var_id) {
-                                                Some(variable) => {
-                                                    let mut var_cloned = variable.clone();
-                                                    for var_item in &mut var_cloned.sub_variables {
-                                                        self.resolve_variable(debugger, var_id, item, Some(var_item));
-                                                    }
-                                                    debugger.debug_data.variables.insert(var_id, var_cloned);
-                                                }
-                                                None => {
-                                                    return;
-                                                }
-                                            };*/
-
-                                           // let mut variable = variable.clone();
-                                           // variable.type_ = DebugVariableType::Array;
-                                            dbg_var.value = "Array".to_string();
-                                            dbg_var.sub_variables.clear();
-
-                                            let mut index = 0;
-                                            for item in arr_items {
-                                                //out.push(self.resolve(item, cs)?.into_owned());
-                                                let mut dbg_var_item = DebugVariable{
-                                                    name: format!("[{}]", index),
-                                                    type_: DebugVariableType::Array,
-                                                    value: "".to_string(),
-                                                    circuit_id: 0,
-                                                    mutable: false,
-                                                    is_argument: false,
-                                                    const_: false,
-                                                    line_start: 0,
-                                                    line_end: 0,
-                                                    sub_variables: vec![]
-                                                };
-                                                self.resolve_variable(debugger, var_id, item, Some(&mut dbg_var_item));
-                                                dbg_var.sub_variables.push(dbg_var_item);
-                                                index += 1;
-                                            }
-                                            variable.sub_variables.push(dbg_var);
-                                        }
-                                        ConstrainedValue::Tuple(tuple) => {
-                                            dbg_var.type_ = DebugVariableType::Tuple;
-                                            dbg_var.value = "Tuple".to_string();
-
-                                            let mut index_tuple: usize = 0;
-                                            for tuple_item in tuple {
-                                                let mut dbg_var_tuple = DebugVariable {
-                                                    name: format!("{}", index_tuple),
-                                                    type_: DebugVariableType::Array,
-                                                    value: "".to_string(),
-                                                    circuit_id: 0,
-                                                    mutable: false,
-                                                    is_argument: false,
-                                                    const_: false,
-                                                    line_start: 0,
-                                                    line_end: 0,
-                                                    sub_variables: vec![]
-                                                };
-                                                self.resolve_variable(debugger, var_id, tuple_item, Some(&mut dbg_var_tuple));
-                                                dbg_var.sub_variables.push(dbg_var_tuple);
-                                                index_tuple += 1;
-                                            }
-
-                                            variable.sub_variables.push(dbg_var);
+                                        None => {
                                         }
                                     }
+
+                                    self.resolve_variable(debugger, var_id, item, Some(&mut dbg_var));
+                                    variable.sub_variables.push(dbg_var);
                                     index += 1;
                                 }
 
+
+                                //*variable = new_variable.clone();
                                 debugger.debug_data.variables.insert(var_id, variable);
                             }
                             None => {
@@ -449,58 +350,57 @@ impl<F: PrimeField, G: GroupType<F>> ConstrainedValue<F, G> {
                             }
                         }
                     }
-                    Some(_var) => {
-                      
-                    }
-                }
+                    Some(var) => {
+                        /*var.type_ = DebugVariableType::Tuple;
+                        //var.value = "Tuple".to_string();
 
+                        match var.type_ {
+                            DebugVariableType::Circuit => {
+                                var.value = "Circuit".to_string();
+                            }
 
-                /*let mut values: Vec<DebugVariable> = Vec::new();
-                for item in items {
-                    match item {
-                        ConstrainedValue::Integer(int) => {
-                            //
-                            let mut dbg_var = DebugVariable{
-                                name: int.to_string(),
+                            _=> {
+
+                            }
+                        }*/
+
+                        let mut sub_variables = var.sub_variables.clone();
+                        var.sub_variables.clear();
+                        let mut index: usize = 0;
+                        for item in items {
+                            let mut dbg_var: DebugVariable;
+                            dbg_var = DebugVariable {
+                                name: format!("{}", index),
                                 type_: DebugVariableType::Integer,
                                 value: "".to_string(),
                                 circuit_id: 0,
                                 mutable: false,
+                                is_argument: false,
                                 const_: false,
                                 line_start: 0,
                                 line_end: 0,
                                 sub_variables: vec![]
                             };
-                            self.resolve_variable(debugger, var_id, item, Some(&mut dbg_var));
-                        }
-                        ConstrainedValue::Array(items) => {
-                            let mut dbg_var = DebugVariable{
-                                name: "123".to_string(),
-                                type_: DebugVariableType::Integer,
-                                value: "Array".to_string(),
-                                circuit_id: 0,
-                                mutable: false,
-                                const_: false,
-                                line_start: 0,
-                                line_end: 0,
-                                sub_variables: vec![]
-                            };
-                            self.resolve_variable(debugger, var_id, item, Some(&mut dbg_var));
-                        }
-                        _=> {}
-                    }
-                }
 
-                match debugger.debug_data.variables.get_mut(&var_id) {
-                    Some(variable) => {
-                        let mut index: usize = 0;
-                        for item in &mut variable.sub_variables {
-                            item.value = values.get(index).unwrap().clone();
+                            match debugger.debug_data.variables.get_mut(&var_id) {
+                                Some(variable) => {
+                                    match sub_variables.get_mut(index) {
+                                        Some(item) => {
+                                            dbg_var = item.clone();
+                                        }
+                                        None => {
+                                        }
+                                    }
+                                }
+                                None =>{
+                                }
+                            }
+                            self.resolve_variable(debugger, var_id, item, Some(&mut dbg_var));
+                            var.sub_variables.push(dbg_var);
                             index += 1;
                         }
                     }
-                    None =>{}
-                }*/
+                }
             }
         }
     }

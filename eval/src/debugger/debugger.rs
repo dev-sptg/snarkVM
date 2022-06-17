@@ -875,8 +875,12 @@ impl Debugger {
 
             let mut instructions: Vec<u32> = Vec::new();
             for (_key, function) in &self.debug_data.functions {
-                for (_key, instruction) in &function.instructions {
-                    instructions.push(instruction.line_start);
+                let file_path = function.file_path.clone();
+                let path = Path::new(&file_path);
+                if path.exists() {
+                    for (_key, instruction) in &function.instructions {
+                        instructions.push(instruction.line_start);
+                    }
                 }
             }
             let mut instructions_mem: Vec<u32> = Vec::with_capacity(instructions.len());
